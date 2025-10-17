@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="SemiPrimeDivide logo">
+  <defs>
+    <style>
+      .sp-stroke{stroke:currentColor;stroke-width:12;stroke-linecap:round;stroke-linejoin:round;fill:none}
+      .sp-fill{fill:currentColor}
+    </style>
+  </defs>
+
+  <!-- Hex nut / constructor motif -->
+  <path class="sp-stroke" d="M128 20l68 39v78l-68 39-68-39V59z"/>
+  <!-- Inner ring (precision / math) -->
+  <circle class="sp-stroke" cx="128" cy="98" r="34"/>
+
+  <!-- Trurl "T" monogram as a minimal robot head/antenna -->
+  <!-- Crossbar / antenna -->
+  <path class="sp-stroke" d="M104 78h48"/>
+  <!-- Stem -->
+  <path class="sp-stroke" d="M128 78v44"/>
+  <!-- Sensor “eyes” hint -->
+  <circle class="sp-fill" cx="112" cy="78" r="4"/>
+  <circle class="sp-fill" cx="144" cy="78" r="4"/>
+
+</svg>

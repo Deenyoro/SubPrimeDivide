@@ -51,7 +51,7 @@ export default function Home() {
   return (
     <>
       <Head>
-        <title>SemiPrime Factor - Home</title>
+        <title>SemiPrimeDivide - Home</title>
         <meta name="description" content="High-performance integer factorization service" />
       </Head>
 
@@ -59,9 +59,18 @@ export default function Home() {
         <div className="max-w-7xl mx-auto">
           {/* Header */}
           <div className="text-center mb-8 animate-fade-in">
-            <h1 className="text-5xl font-bold text-gray-900 dark:text-white mb-3 bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600">
-              SemiPrime Factor
-            </h1>
+            <div className="flex justify-center mb-4">
+              <img
+                src="/horizontallogo-dark.svg"
+                alt="SemiPrimeDivide"
+                className="h-20 hidden dark:block"
+              />
+              <img
+                src="/horizontallogo-light.svg"
+                alt="SemiPrimeDivide"
+                className="h-20 dark:hidden"
+              />
+            </div>
             <p className="text-xl text-gray-600 dark:text-gray-400">
               Equation-guided integer factorization with ECM, Pollard-rho, and more
             </p>
