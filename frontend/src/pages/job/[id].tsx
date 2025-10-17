@@ -212,6 +212,13 @@ export default function JobDetail() {
       log.message.includes('Trurl bounds')
     )
 
+    // Find constraint verification log
+    const constraintLog = logs.find(log =>
+      log.stage === 'equation_search' &&
+      log.message.includes('constraints') &&
+      log.payload?.constraints
+    )
+
     // Extract x where y=1 from bounds log
     let xWhenYEquals1: number | undefined
     if (boundsLog) {
@@ -223,6 +230,9 @@ export default function JobDetail() {
 
     // Get actual factor if found
     const actualFactor = results.length > 0 ? parseFloat(results[0].factor) : undefined
+
+    // Get constraint verification data
+    const constraints = constraintLog?.payload?.constraints
 
     // Generate curve data if we have bounds
     let curveData: { x: number; y: number }[] = []
@@ -251,7 +261,8 @@ export default function JobDetail() {
       xWhenYEquals1,
       actualFactor,
       curveData,
-      hasCurveData: curveData.length > 0
+      hasCurveData: curveData.length > 0,
+      constraints
     }
   }, [logs, job, results])
 
@@ -539,9 +550,30 @@ export default function JobDetail() {
                 </details>
               )}
 
+              {/* Constraint Verification */}
+              {equationData.constraints && (
+                <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <h3 className="text-sm font-medium text-gray-800 dark:text-gray-300 mb-3">
+                    ✓ Constraint Verification
+                  </h3>
+                  <div className="space-y-2">
+                    {Object.entries(equationData.constraints).map(([key, value]) => (
+                      <div key={key} className="flex items-center justify-between text-sm">
+                        <span className="text-gray-700 dark:text-gray-300">
+                          {key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}:
+                        </span>
+                        <Badge variant={value ? 'success' : 'danger'}>
+                          {value ? '✓ Pass' : '✗ Fail'}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Accuracy Metric */}
               {equationData.actualFactor && equationData.xWhenYEquals1 && (
-                <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
+                <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800 mt-4">
                   <h3 className="text-sm font-medium text-yellow-800 dark:text-yellow-300 mb-2">
                     🎯 Prediction Accuracy
                   </h3>
