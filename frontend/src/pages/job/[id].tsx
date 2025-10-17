@@ -13,6 +13,7 @@ import LoadingSpinner from '@/components/LoadingSpinner'
 import Badge from '@/components/Badge'
 import AlgorithmPerformanceChart from '@/components/charts/AlgorithmPerformanceChart'
 import TimeSeriesChart from '@/components/charts/TimeSeriesChart'
+import EquationCurveChart from '@/components/charts/EquationCurveChart'
 
 export default function JobDetail() {
   const router = useRouter()
@@ -193,6 +194,66 @@ export default function JobDetail() {
 
     return progressLogs
   }, [logs, job])
+
+  // Parse equation data from logs
+  const equationData = useMemo(() => {
+    if (!job?.use_equation) return null
+
+    // Find diagnostic log with payload
+    const diagnosticLog = logs.find(log =>
+      log.stage === 'equation' &&
+      log.message.includes('Diagnostic report') &&
+      log.payload
+    )
+
+    // Find bounds log
+    const boundsLog = logs.find(log =>
+      log.stage === 'equation' &&
+      log.message.includes('Trurl bounds')
+    )
+
+    // Extract x where y=1 from bounds log
+    let xWhenYEquals1: number | undefined
+    if (boundsLog) {
+      const match = boundsLog.message.match(/lower\s*=\s*10\^([\d.]+)/)
+      if (match) {
+        xWhenYEquals1 = Math.pow(10, parseFloat(match[1]))
+      }
+    }
+
+    // Get actual factor if found
+    const actualFactor = results.length > 0 ? parseFloat(results[0].factor) : undefined
+
+    // Generate curve data if we have bounds
+    let curveData: { x: number; y: number }[] = []
+    if (job.lower_bound && job.upper_bound && job.n) {
+      const lower = parseFloat(job.lower_bound)
+      const upper = parseFloat(job.upper_bound)
+      const pnp = parseFloat(job.n)
+
+      // Generate 100 points across the range
+      const numPoints = 100
+      const logLower = Math.log10(lower)
+      const logUpper = Math.log10(upper)
+      const logStep = (logUpper - logLower) / numPoints
+
+      for (let i = 0; i <= numPoints; i++) {
+        const logX = logLower + i * logStep
+        const x = Math.pow(10, logX)
+        // y = (((pnp^2/x) + x^2) / pnp)
+        const y = (((pnp * pnp / x) + x * x) / pnp)
+        curveData.push({ x, y })
+      }
+    }
+
+    return {
+      diagnosticPayload: diagnosticLog?.payload,
+      xWhenYEquals1,
+      actualFactor,
+      curveData,
+      hasCurveData: curveData.length > 0
+    }
+  }, [logs, job, results])
 
   if (loading) {
     return (
@@ -398,6 +459,107 @@ export default function JobDetail() {
               )}
             </div>
           </Card>
+
+          {/* Equation Analysis Section */}
+          {job.use_equation && equationData && (
+            <Card className="mb-6">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
+                🧮 Trurl Equation Analysis
+              </h2>
+
+              {/* Equation Curve Visualization */}
+              {equationData.hasCurveData && (
+                <div className="mb-6">
+                  <EquationCurveChart
+                    data={equationData.curveData}
+                    xWhenYEquals1={equationData.xWhenYEquals1}
+                    actualFactor={equationData.actualFactor}
+                    height={400}
+                    title="y = (((pnp²/x) + x²) / pnp)"
+                  />
+                </div>
+              )}
+
+              {/* Key Metrics */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                {equationData.xWhenYEquals1 && (
+                  <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                    <h3 className="text-sm font-medium text-green-800 dark:text-green-300 mb-1">
+                      x where y = 1
+                    </h3>
+                    <p className="font-mono text-sm text-green-900 dark:text-green-100">
+                      {equationData.xWhenYEquals1.toExponential(4)}
+                    </p>
+                    <p className="text-xs text-green-700 dark:text-green-400 mt-1">
+                      General area for smaller factor
+                    </p>
+                  </div>
+                )}
+
+                {job.lower_bound && (
+                  <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                    <h3 className="text-sm font-medium text-blue-800 dark:text-blue-300 mb-1">
+                      Search Lower Bound
+                    </h3>
+                    <p className="font-mono text-sm text-blue-900 dark:text-blue-100">
+                      {parseFloat(job.lower_bound).toExponential(4)}
+                    </p>
+                    <p className="text-xs text-blue-700 dark:text-blue-400 mt-1">
+                      90% of x where y=1
+                    </p>
+                  </div>
+                )}
+
+                {job.upper_bound && (
+                  <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+                    <h3 className="text-sm font-medium text-purple-800 dark:text-purple-300 mb-1">
+                      Search Upper Bound
+                    </h3>
+                    <p className="font-mono text-sm text-purple-900 dark:text-purple-100">
+                      {parseFloat(job.upper_bound).toExponential(4)}
+                    </p>
+                    <p className="text-xs text-purple-700 dark:text-purple-400 mt-1">
+                      √(pnp)
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Diagnostic Information */}
+              {equationData.diagnosticPayload && (
+                <details className="mb-4">
+                  <summary className="cursor-pointer text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white">
+                    📊 View Diagnostic Report
+                  </summary>
+                  <div className="mt-3 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                    <pre className="text-xs font-mono text-gray-800 dark:text-gray-200 overflow-x-auto">
+                      {JSON.stringify(equationData.diagnosticPayload, null, 2)}
+                    </pre>
+                  </div>
+                </details>
+              )}
+
+              {/* Accuracy Metric */}
+              {equationData.actualFactor && equationData.xWhenYEquals1 && (
+                <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
+                  <h3 className="text-sm font-medium text-yellow-800 dark:text-yellow-300 mb-2">
+                    🎯 Prediction Accuracy
+                  </h3>
+                  <p className="text-sm text-yellow-900 dark:text-yellow-100">
+                    Actual factor: <span className="font-mono">{equationData.actualFactor.toExponential(4)}</span>
+                  </p>
+                  <p className="text-sm text-yellow-900 dark:text-yellow-100">
+                    Predicted (x where y=1): <span className="font-mono">{equationData.xWhenYEquals1.toExponential(4)}</span>
+                  </p>
+                  <p className="text-sm text-yellow-900 dark:text-yellow-100 mt-2">
+                    Error: <span className="font-mono">
+                      {((Math.abs(equationData.actualFactor - equationData.xWhenYEquals1) / equationData.actualFactor) * 100).toFixed(2)}%
+                    </span>
+                  </p>
+                </div>
+              )}
+            </Card>
+          )}
 
           {/* Analytics Toggle */}
           {(results.length > 0 || logs.length > 10) && (
