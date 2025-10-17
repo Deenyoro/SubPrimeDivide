@@ -13,5 +13,5 @@ gmpy2==2.1.5
 primesieve==2.3.2
 sympy==1.12
 numexpr==2.8.7
-python-dotenv==1.0.0
+python-dotenv==1.1.1
 psycopg2-binary==2.9.9
