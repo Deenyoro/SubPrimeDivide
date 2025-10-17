@@ -12,6 +12,6 @@ websockets==12.0
 gmpy2==2.1.5
 primesieve==2.3.2
 sympy==1.12
-numexpr==2.8.7
+numexpr==2.14.1
 python-dotenv==1.0.0
 psycopg2-binary==2.9.9
