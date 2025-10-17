@@ -1,5 +1,9 @@
 <div align="center">
-  <img src="./horizontallogo.svg" alt="SemiPrimeDivide" width="600" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./horizontallogo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="./horizontallogo-light.svg">
+    <img src="./horizontallogo-light.svg" alt="SemiPrimeDivide" width="600" />
+  </picture>
 
   <p align="center">
     <strong>High-performance, equation-guided integer factorization service</strong>
@@ -25,7 +29,11 @@
 ## Architecture
 
 <div align="center">
-  <img src="./logo.svg" alt="SemiPrimeDivide Logo" width="120" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="./logo-light.svg">
+    <img src="./logo-light.svg" alt="SemiPrimeDivide Logo" width="120" />
+  </picture>
 </div>
 
 ```
@@ -463,7 +471,11 @@ For issues or questions, please open an issue on GitHub or contact the maintaine
 ---
 
 <div align="center">
-  <img src="./logo.svg" alt="SemiPrimeDivide" width="80" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="./logo-light.svg">
+    <img src="./logo-light.svg" alt="SemiPrimeDivide" width="80" />
+  </picture>
 
   <p><strong>Built with</strong></p>
   <p>Python • FastAPI • Celery • PostgreSQL • Redis • Next.js • React • TailwindCSS • Docker</p>

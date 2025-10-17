@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="192" viewBox="0 0 640 192" role="img" aria-label="SemiPrimeDivide wordmark">
+  <defs>
+    <style>
+      .sp-stroke{stroke:#e5e7eb;stroke-width:10;stroke-linecap:round;stroke-linejoin:round;fill:none}
+      .sp-fill{fill:#e5e7eb}
+      .sp-text{font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji"; font-weight: 700; letter-spacing: .2px}
+      .sp-sub{font-weight: 500; opacity: .7}
+    </style>
+  </defs>
+
+  <!-- ICON -->
+  <g transform="translate(8,8)">
+    <path class="sp-stroke" d="M80 8l60 34v68l-60 34-60-34V42z"/>
+    <circle class="sp-stroke" cx="80" cy="70" r="30"/>
+    <path class="sp-stroke" d="M56 54h48"/>
+    <path class="sp-stroke" d="M80 54v38"/>
+    <circle class="sp-fill" cx="66" cy="54" r="3.5"/>
+    <circle class="sp-fill" cx="94" cy="54" r="3.5"/>
+    <line class="sp-stroke" x1="60" y1="110" x2="100" y2="110"/>
+    <circle class="sp-fill" cx="80" cy="99" r="3.5"/>
+    <circle class="sp-fill" cx="80" cy="121" r="3.5"/>
+  </g>
+
+  <!-- WORDMARK -->
+  <g transform="translate(168,74)" fill="#e5e7eb">
+    <text class="sp-text" x="0" y="0" font-size="44">SemiPrimeDivide</text>
+    <text class="sp-text sp-sub" x="2" y="28" font-size="18">Constructor-grade factoring toolkit</text>
+  </g>
+</svg>
