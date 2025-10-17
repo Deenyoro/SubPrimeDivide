@@ -1,0 +1,44 @@
+FROM python:3.11-slim
+
+# Build arguments for CI/CD
+ARG GIT_COMMIT=unknown
+ARG BUILD_DATE=unknown
+ARG CELERY_CONCURRENCY=4
+
+# Labels for image metadata
+LABEL org.opencontainers.image.source="https://github.com/your-org/semiprime"
+LABEL org.opencontainers.image.description="SemiPrime Factor Celery Worker"
+LABEL org.opencontainers.image.version="${GIT_COMMIT}"
+LABEL org.opencontainers.image.created="${BUILD_DATE}"
+
+# Install system dependencies including GMP-ECM
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libgmp-dev \
+    libmpfr-dev \
+    libmpc-dev \
+    gmp-ecm \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy requirements
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY . .
+
+# Create uploads directory
+RUN mkdir -p /app/uploads
+
+# Store build info
+RUN echo "GIT_COMMIT=${GIT_COMMIT}" > /app/build-info.txt && \
+    echo "BUILD_DATE=${BUILD_DATE}" >> /app/build-info.txt
+
+# Set environment variable for concurrency
+ENV CELERY_CONCURRENCY=${CELERY_CONCURRENCY}
+
+CMD ["celery", "-A", "app.worker", "worker", "--loglevel=info", "--concurrency=${CELERY_CONCURRENCY}"]

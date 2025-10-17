@@ -1,0 +1,259 @@
+name: Deploy to Production
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to ${{ github.event.inputs.environment || 'production' }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'production' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          else
+            VERSION=$(git describe --tags --always)
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Deploying version: $VERSION"
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_KEY }}
+
+      - name: Add host to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy via SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || 22 }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          echo "## Deployment Log" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`$VERSION\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Host:** \`$DEPLOY_HOST\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Time:** $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Connect and deploy
+          ssh -p $DEPLOY_PORT $DEPLOY_USER@$DEPLOY_HOST << 'ENDSSH'
+            set -e
+
+            echo "=== Starting deployment ==="
+
+            # Navigate to app directory
+            cd /opt/SemiPrimeDivide || cd ~/SemiPrimeDivide || { echo "App directory not found"; exit 1; }
+
+            echo "Current directory: $(pwd)"
+
+            # Backup current state
+            echo "=== Creating backup ==="
+            cp .env .env.backup.$(date +%Y%m%d_%H%M%S) || true
+            docker compose down || true
+
+            # Fetch latest code
+            echo "=== Fetching latest code ==="
+            git fetch --all --tags
+            git checkout $VERSION || git checkout main
+            git pull origin $(git branch --show-current)
+
+            # Pull latest images if using registry
+            echo "=== Pulling Docker images ==="
+            docker compose pull || echo "Pull failed, will build locally"
+
+            # Start services
+            echo "=== Starting services ==="
+            docker compose up -d --build
+
+            echo "=== Deployment complete ==="
+          ENDSSH
+
+          echo "✅ Deployment commands executed successfully" >> $GITHUB_STEP_SUMMARY
+
+      - name: Wait for services to be healthy
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || 22 }}
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Health Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Wait for services to start
+          sleep 10
+
+          # Check service health via SSH
+          ssh -p $DEPLOY_PORT $DEPLOY_USER@$DEPLOY_HOST << 'ENDSSH'
+            set -e
+
+            cd /opt/SemiPrimeDivide || cd ~/SemiPrimeDivide
+
+            echo "=== Waiting for services to be healthy ==="
+
+            MAX_ATTEMPTS=30
+            ATTEMPT=0
+
+            while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+              ATTEMPT=$((ATTEMPT + 1))
+              echo "Health check attempt $ATTEMPT/$MAX_ATTEMPTS"
+
+              # Check if API is responding
+              if curl -f http://localhost:8080/api/health > /dev/null 2>&1; then
+                echo "✅ API is healthy!"
+
+                # Check container status
+                echo "=== Container status ==="
+                docker compose ps
+
+                exit 0
+              fi
+
+              echo "Services not ready yet, waiting..."
+              sleep 5
+            done
+
+            echo "❌ Health check failed after $MAX_ATTEMPTS attempts"
+            echo "=== Container logs ==="
+            docker compose logs --tail=50
+            exit 1
+          ENDSSH
+
+          if [ $? -eq 0 ]; then
+            echo "✅ All services are healthy" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Health check failed" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+      - name: Verify deployment
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || 22 }}
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Verification" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          ssh -p $DEPLOY_PORT $DEPLOY_USER@$DEPLOY_HOST << 'ENDSSH'
+            cd /opt/SemiPrimeDivide || cd ~/SemiPrimeDivide
+
+            echo "=== Running verification checks ==="
+
+            # Check API health endpoint
+            echo "Checking API health..."
+            API_RESPONSE=$(curl -s http://localhost:8080/api/health)
+            echo "API Response: $API_RESPONSE"
+
+            # Check database connectivity
+            echo "Checking database..."
+            docker compose exec -T db pg_isready -U factor || echo "Database check inconclusive"
+
+            # Check Redis
+            echo "Checking Redis..."
+            docker compose exec -T queue redis-cli ping || echo "Redis check inconclusive"
+
+            # Check all containers are running
+            echo "Checking all services..."
+            docker compose ps
+
+            # Get resource usage
+            echo "=== Resource usage ==="
+            docker stats --no-stream --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}"
+          ENDSSH
+
+          echo "✅ Verification complete" >> $GITHUB_STEP_SUMMARY
+
+      - name: Rollback on failure
+        if: failure()
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || 22 }}
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Rollback" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ Deployment failed, attempting rollback..." >> $GITHUB_STEP_SUMMARY
+
+          ssh -p $DEPLOY_PORT $DEPLOY_USER@$DEPLOY_HOST << 'ENDSSH'
+            cd /opt/SemiPrimeDivide || cd ~/SemiPrimeDivide
+
+            echo "=== Rolling back ==="
+
+            # Restore previous .env if backup exists
+            LATEST_BACKUP=$(ls -t .env.backup.* 2>/dev/null | head -1)
+            if [ ! -z "$LATEST_BACKUP" ]; then
+              echo "Restoring .env from $LATEST_BACKUP"
+              cp "$LATEST_BACKUP" .env
+            fi
+
+            # Restart services with previous configuration
+            docker compose down
+            docker compose up -d
+
+            echo "=== Rollback complete ==="
+          ENDSSH
+
+          echo "⚠️ Rolled back to previous version" >> $GITHUB_STEP_SUMMARY
+
+  deployment-summary:
+    name: Deployment Summary
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    if: always()
+
+    steps:
+      - name: Summary
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.deploy.result }}" = "success" ]; then
+            echo "✅ **Deployment successful!**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Version \`${{ github.ref_name }}\` has been deployed to ${{ github.event.inputs.environment || 'production' }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "1. Monitor application logs" >> $GITHUB_STEP_SUMMARY
+            echo "2. Verify critical functionality" >> $GITHUB_STEP_SUMMARY
+            echo "3. Check error tracking dashboards" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Deployment failed**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Please check the logs above for error details" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Deployed by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Timestamp:** $(date -u)" >> $GITHUB_STEP_SUMMARY

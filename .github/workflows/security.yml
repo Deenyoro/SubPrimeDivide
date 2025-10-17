@@ -1,0 +1,267 @@
+name: Security Scanning
+
+on:
+  schedule:
+    - cron: '0 2 * * 1'  # Weekly on Monday at 2 AM UTC
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  trivy-scan:
+    name: Trivy Vulnerability Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '0'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Run Trivy scan for summary
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'table'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '0'
+
+  secret-detection:
+    name: Secret Detection
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan for secrets in code
+        run: |
+          echo "## Secret Detection Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Search for common secret patterns
+          echo "Scanning for potential secrets..." >> $GITHUB_STEP_SUMMARY
+
+          PATTERNS=(
+            "password"
+            "secret"
+            "api[_-]?key"
+            "access[_-]?token"
+            "auth[_-]?token"
+            "private[_-]?key"
+            "aws[_-]?secret"
+            "db[_-]?password"
+          )
+
+          FILES_TO_SCAN="api/ frontend/ *.py *.js *.ts *.json *.yml *.yaml"
+          FOUND_ISSUES=0
+
+          for pattern in "${PATTERNS[@]}"; do
+            echo "Checking for pattern: $pattern"
+            RESULTS=$(grep -r -i -n "$pattern" $FILES_TO_SCAN 2>/dev/null | grep -v ".git" | grep -v "node_modules" | grep -v ".env.example" | grep -v "CLAUDE.md" | grep -v "README.md" | grep -v "workflows" || true)
+
+            if [ ! -z "$RESULTS" ]; then
+              echo "⚠️ Found potential secrets matching pattern: $pattern" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              echo "$RESULTS" | head -10 >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              FOUND_ISSUES=$((FOUND_ISSUES + 1))
+            fi
+          done
+
+          if [ $FOUND_ISSUES -eq 0 ]; then
+            echo "✅ No obvious secrets detected" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ Found $FOUND_ISSUES potential secret patterns" >> $GITHUB_STEP_SUMMARY
+            echo "Please review these matches to ensure no actual secrets are committed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  dependency-scan:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install safety
+        run: pip install safety
+
+      - name: Scan Python dependencies
+        working-directory: ./api
+        continue-on-error: true
+        run: |
+          echo "## Python Dependency Scan" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f requirements.txt ]; then
+            safety check --file requirements.txt --output text > safety_report.txt || true
+
+            if [ -s safety_report.txt ]; then
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              cat safety_report.txt >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+            else
+              echo "✅ No known vulnerabilities in Python dependencies" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Scan npm dependencies
+        working-directory: ./frontend
+        continue-on-error: true
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## NPM Dependency Scan" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          npm audit --audit-level=moderate > npm_audit.txt || true
+
+          if grep -q "found 0 vulnerabilities" npm_audit.txt; then
+            echo "✅ No known vulnerabilities in NPM dependencies" >> $GITHUB_STEP_SUMMARY
+          else
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat npm_audit.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+  codeql-analysis:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    strategy:
+      matrix:
+        language: ['python', 'javascript']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
+
+  docker-scan:
+    name: Docker Image Security Scan
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+
+    strategy:
+      matrix:
+        service: [api, frontend, worker]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Determine build context and dockerfile
+        id: build-context
+        run: |
+          if [ "${{ matrix.service }}" = "api" ]; then
+            echo "context=./api" >> $GITHUB_OUTPUT
+            echo "dockerfile=./infra/dockerfiles/Dockerfile.api" >> $GITHUB_OUTPUT
+          elif [ "${{ matrix.service }}" = "frontend" ]; then
+            echo "context=./frontend" >> $GITHUB_OUTPUT
+            echo "dockerfile=./infra/dockerfiles/Dockerfile.frontend" >> $GITHUB_OUTPUT
+          elif [ "${{ matrix.service }}" = "worker" ]; then
+            echo "context=./api" >> $GITHUB_OUTPUT
+            echo "dockerfile=./infra/dockerfiles/Dockerfile.worker" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build Docker image for scanning
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ steps.build-context.outputs.context }}
+          file: ${{ steps.build-context.outputs.dockerfile }}
+          push: false
+          load: true
+          tags: semiprime-${{ matrix.service }}:scan
+
+      - name: Run Trivy on Docker image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: semiprime-${{ matrix.service }}:scan
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs: [trivy-scan, secret-detection, dependency-scan, codeql-analysis]
+    if: always()
+
+    steps:
+      - name: Generate summary
+        run: |
+          echo "## Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Scan Type | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Trivy Filesystem | ${{ needs.trivy-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Secret Detection | ${{ needs.secret-detection.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Dependency Scan | ${{ needs.dependency-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| CodeQL Analysis | ${{ needs.codeql-analysis.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.trivy-scan.result }}" = "success" ] && \
+             [ "${{ needs.secret-detection.result }}" = "success" ] && \
+             [ "${{ needs.dependency-scan.result }}" = "success" ]; then
+            echo "✅ All security scans completed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Some security scans had issues - please review" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Note:** CodeQL requires GitHub Advanced Security and may be skipped for private repos" >> $GITHUB_STEP_SUMMARY

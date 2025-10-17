@@ -1,0 +1,46 @@
+FROM python:3.11-slim
+
+# Build arguments for CI/CD
+ARG GIT_COMMIT=unknown
+ARG BUILD_DATE=unknown
+
+# Labels for image metadata
+LABEL org.opencontainers.image.source="https://github.com/your-org/semiprime"
+LABEL org.opencontainers.image.description="SemiPrime Factor API Service"
+LABEL org.opencontainers.image.version="${GIT_COMMIT}"
+LABEL org.opencontainers.image.created="${BUILD_DATE}"
+
+# Install system dependencies for multi-platform builds
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libgmp-dev \
+    libmpfr-dev \
+    libmpc-dev \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy requirements first for better caching
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY . .
+
+# Create uploads directory
+RUN mkdir -p /app/uploads
+
+# Store build info
+RUN echo "GIT_COMMIT=${GIT_COMMIT}" > /app/build-info.txt && \
+    echo "BUILD_DATE=${BUILD_DATE}" >> /app/build-info.txt
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8080/api/health || exit 1
+
+EXPOSE 8080
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]

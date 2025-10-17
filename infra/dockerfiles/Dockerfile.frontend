@@ -1,0 +1,43 @@
+FROM node:20-alpine
+
+# Build arguments for CI/CD
+ARG GIT_COMMIT=unknown
+ARG BUILD_DATE=unknown
+ARG NEXT_PUBLIC_API_URL=http://localhost:8080
+ARG NEXT_PUBLIC_WS_URL=ws://localhost:8080
+
+# Labels for image metadata
+LABEL org.opencontainers.image.source="https://github.com/your-org/semiprime"
+LABEL org.opencontainers.image.description="SemiPrime Factor Frontend"
+LABEL org.opencontainers.image.version="${GIT_COMMIT}"
+LABEL org.opencontainers.image.created="${BUILD_DATE}"
+
+WORKDIR /app
+
+# Install curl for health checks
+RUN apk add --no-cache curl
+
+# Copy package files
+COPY package.json package-lock.json* ./
+RUN npm ci --prefer-offline --no-audit
+
+# Copy application code
+COPY . .
+
+# Set environment variables
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL}
+ENV GIT_COMMIT=${GIT_COMMIT}
+ENV BUILD_DATE=${BUILD_DATE}
+
+# Store build info
+RUN echo "GIT_COMMIT=${GIT_COMMIT}" > /app/build-info.txt && \
+    echo "BUILD_DATE=${BUILD_DATE}" >> /app/build-info.txt
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:3000 || exit 1
+
+EXPOSE 3000
+
+CMD ["npm", "run", "dev"]
