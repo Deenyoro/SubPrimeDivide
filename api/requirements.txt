@@ -9,7 +9,7 @@ celery==5.3.4
 redis==5.0.1
 python-multipart==0.0.6
 websockets==12.0
-gmpy2==2.1.5
+gmpy2==2.2.1
 primesieve==2.3.2
 sympy==1.12
 numexpr==2.8.7
