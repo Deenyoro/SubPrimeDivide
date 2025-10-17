@@ -13,14 +13,11 @@
 
   <!-- Trurl "T" monogram as a minimal robot head/antenna -->
   <!-- Crossbar / antenna -->
-  <path class="sp-stroke" d="M98 78h60"/>
+  <path class="sp-stroke" d="M104 78h48"/>
   <!-- Stem -->
   <path class="sp-stroke" d="M128 78v44"/>
   <!-- Sensor “eyes” hint -->
   <circle class="sp-fill" cx="112" cy="78" r="4"/>
   <circle class="sp-fill" cx="144" cy="78" r="4"/>
 
-  <!-- Subtle division mark (÷) integrated at the base to reference factoring/division -->
-  <line class="sp-stroke" x1="108" y1="140" x2="148" y2="140"/>
-  <circle class="sp-fill" cx="128" cy="154" r="4"/>
 </svg>
