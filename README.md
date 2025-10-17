@@ -60,55 +60,115 @@
 
 ### Ubuntu (x86_64)
 ```bash
-# Docker & Docker Compose
+# Install Docker
 sudo apt-get update
-sudo apt-get install docker.io docker-compose-plugin
+sudo apt-get install -y docker.io docker-compose-plugin
 
-# Enable buildx for multi-arch (optional)
-docker buildx create --use
+# Add user to docker group (logout/login required)
+sudo usermod -aG docker $USER
+
+# Verify installation
+docker --version
+docker compose version
 ```
 
-### macOS (Apple Silicon)
-```bash
-# Install Docker Desktop for Mac (includes Compose)
-# https://www.docker.com/products/docker-desktop/
+### macOS (Intel & Apple Silicon)
 
-# Ensure Docker Desktop is running
+**Option 1: Docker Desktop (Recommended)**
+1. Download from https://www.docker.com/products/docker-desktop/
+2. Install the .dmg package
+3. Open Docker Desktop and wait for it to start
+4. Verify in terminal:
+```bash
+docker --version
+docker compose version
 docker ps
 ```
 
-## Quick Start
-
-### 1. Clone and Setup
-
+**Option 2: Homebrew**
 ```bash
-cd /opt/docker/SemiPrimeDivide
+# Install Docker
+brew install docker docker-compose
 
-# Copy environment template
-cp .env.example .env
+# Install and start colima (Docker runtime for macOS)
+brew install colima
+colima start --cpu 4 --memory 8 --disk 60
 
-# (Optional) Edit .env for custom configuration
-nano .env
+# Verify
+docker ps
 ```
 
-### 2. Start Services
+**For Apple Silicon (M1/M2/M3):**
+- Docker Desktop automatically handles ARM64 images
+- The pre-built images support `linux/arm64` natively
+- No additional configuration needed
+
+## Quick Start
+
+### Option A: Using Pre-Built CI/CD Images (Fastest)
+
+The project publishes multi-arch images to GitHub Container Registry on every commit.
 
 ```bash
-# Start all services
-docker compose up -d
+# Clone repository
+git clone https://github.com/Deenyoro/SubPrimeDivide.git
+cd SubPrimeDivide
+
+# Copy environment file
+cp .env.example .env
+
+# Pull and start using pre-built images
+docker compose -f docker-compose.ghcr.yml up -d
 
 # View logs
 docker compose logs -f
 
-# Check health
+# Check status
 docker compose ps
 ```
 
-### 3. Access the Application
+**Available images:**
+- `ghcr.io/deenyoro/semiprime-api:latest` (linux/amd64, linux/arm64)
+- `ghcr.io/deenyoro/semiprime-worker:latest` (linux/amd64, linux/arm64)
+- `ghcr.io/deenyoro/semiprime-frontend:latest` (linux/amd64, linux/arm64)
+
+### Option B: Build Locally
+
+```bash
+# Clone repository
+git clone https://github.com/Deenyoro/SubPrimeDivide.git
+cd SubPrimeDivide
+
+# Copy environment template
+cp .env.example .env
+
+# Build and start all services
+docker compose up -d --build
+
+# View logs
+docker compose logs -f
+
+# Check status
+docker compose ps
+```
+
+### Access the Application
 
 - **Web UI**: http://localhost:3000
 - **API Docs**: http://localhost:8080/docs
 - **Health Check**: http://localhost:8080/api/health
+
+### First-Time Setup
+
+```bash
+# Wait for services to initialize (30-60 seconds)
+docker compose logs -f api
+
+# When you see "Application startup complete", you're ready
+# Press Ctrl+C to exit logs
+
+# Open browser to http://localhost:3000
+```
 
 ## Usage
 
@@ -288,43 +348,112 @@ cd frontend
 npm test
 ```
 
-## Multi-Arch Builds (amd64 + arm64)
+## Deployment
 
-To build and push multi-platform images:
+### Using Pre-Built Images
 
+The project uses GitHub Actions CI/CD to automatically build and publish multi-arch Docker images:
+
+**Available tags:**
+- `latest` - Latest main branch build
+- `master` - Latest master branch build
+- `master-{commit}` - Specific commit builds
+- `main-{commit}` - Specific commit builds
+
+**Pull specific versions:**
 ```bash
-# Enable buildx
-docker buildx create --use
+# Latest stable
+docker pull ghcr.io/deenyoro/semiprime-api:latest
+docker pull ghcr.io/deenyoro/semiprime-worker:latest
+docker pull ghcr.io/deenyoro/semiprime-frontend:latest
 
-# Build and push API
-docker buildx build \
-  --platform linux/amd64,linux/arm64 \
-  -t yourorg/factor-api:latest \
-  --push -f infra/dockerfiles/Dockerfile.api api/
-
-# Build and push worker
-docker buildx build \
-  --platform linux/amd64,linux/arm64 \
-  -t yourorg/factor-worker:latest \
-  --push -f infra/dockerfiles/Dockerfile.worker api/
-
-# Build and push frontend
-docker buildx build \
-  --platform linux/amd64,linux/arm64 \
-  -t yourorg/factor-frontend:latest \
-  --push -f infra/dockerfiles/Dockerfile.frontend frontend/
+# Specific commit (example)
+docker pull ghcr.io/deenyoro/semiprime-api:master-d1c1dce
 ```
 
-Update `docker-compose.yml` to use your images:
+**Deploy with specific versions:**
 
+Edit `docker-compose.ghcr.yml`:
 ```yaml
 services:
   api:
-    image: yourorg/factor-api:latest
+    image: ghcr.io/deenyoro/semiprime-api:master-d1c1dce
   worker:
-    image: yourorg/factor-worker:latest
+    image: ghcr.io/deenyoro/semiprime-worker:master-d1c1dce
   frontend:
-    image: yourorg/factor-frontend:latest
+    image: ghcr.io/deenyoro/semiprime-frontend:master-d1c1dce
+```
+
+Then deploy:
+```bash
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+### Production Deployment
+
+For production environments:
+
+1. **Use specific version tags** (not `latest`)
+2. **Set production environment variables**:
+```bash
+# Create production .env
+cp .env.example .env.production
+
+# Edit with production values
+nano .env.production
+```
+
+3. **Run with production config**:
+```bash
+docker compose -f docker-compose.ghcr.yml --env-file .env.production up -d
+```
+
+4. **Enable SSL/TLS** (add reverse proxy):
+```bash
+# Example with nginx
+docker run -d \
+  --name nginx-proxy \
+  -p 80:80 -p 443:443 \
+  -v /etc/nginx/certs:/etc/nginx/certs:ro \
+  -v /var/run/docker.sock:/tmp/docker.sock:ro \
+  nginxproxy/nginx-proxy
+```
+
+### macOS Deployment Notes
+
+**Apple Silicon (M1/M2/M3):**
+- Use the `linux/arm64` images automatically
+- Performance is excellent (native ARM64 execution)
+- Docker Desktop handles everything transparently
+
+**Intel Macs:**
+- Use the `linux/amd64` images automatically
+- Full compatibility with x86_64 images
+
+**Verify architecture:**
+```bash
+docker image inspect ghcr.io/deenyoro/semiprime-api:latest | grep Architecture
+```
+
+### Scaling Workers
+
+To handle more jobs concurrently:
+
+```yaml
+services:
+  worker:
+    image: ghcr.io/deenyoro/semiprime-worker:latest
+    deploy:
+      replicas: 4  # Run 4 worker instances
+      resources:
+        limits:
+          cpus: '2'
+          memory: 8G
+```
+
+Or scale manually:
+```bash
+docker compose -f docker-compose.ghcr.yml up -d --scale worker=4
 ```
 
 ## Configuration
@@ -387,36 +516,81 @@ This service provides the **foundation** and can manage such jobs, but GNFS inte
 ### Services won't start
 
 ```bash
-# Check logs
+# Check logs for all services
+docker compose logs
+
+# Check specific service
 docker compose logs api
 docker compose logs worker
 
-# Restart services
+# Restart all services
 docker compose restart
 
-# Rebuild if code changed
+# Full rebuild (if using local build)
+docker compose down
 docker compose up -d --build
 ```
+
+### macOS-specific issues
+
+**"Cannot connect to Docker daemon"**
+```bash
+# Ensure Docker Desktop is running
+open -a Docker
+
+# Or if using colima
+colima start
+```
+
+**"Port already in use"**
+```bash
+# Find process using port
+lsof -ti:3000  # or :8080, :5432, etc
+kill -9 <PID>
+
+# Or change port in docker-compose.yml
+ports:
+  - "3001:3000"  # Use different host port
+```
+
+**Slow performance on macOS**
+- Allocate more resources in Docker Desktop (Preferences > Resources)
+- Recommended: 4 CPUs, 8GB RAM, 60GB disk
+- Use named volumes instead of bind mounts for better performance
 
 ### Database connection errors
 
 ```bash
-# Check DB is healthy
+# Check DB is running
 docker compose ps db
 
-# Recreate DB
+# View DB logs
+docker compose logs db
+
+# Reset database (WARNING: deletes all data)
 docker compose down -v
 docker compose up -d db
+
+# Wait for DB to be ready
+docker compose logs -f db
+# Look for "database system is ready to accept connections"
 ```
 
 ### Worker not picking up jobs
 
 ```bash
-# Check Redis
+# Check Redis is running
 docker compose ps queue
+
+# Test Redis connection
+docker compose exec queue redis-cli ping
+# Should return: PONG
 
 # Check worker logs
 docker compose logs worker
+
+# Check if worker is registered in Celery
+docker compose exec worker celery -A app.worker inspect active
 
 # Restart worker
 docker compose restart worker
@@ -424,7 +598,77 @@ docker compose restart worker
 
 ### Frontend can't connect to API
 
-Check `NEXT_PUBLIC_API_URL` in frontend environment matches your API host.
+**Check environment variables:**
+```bash
+# Should match your API URL
+docker compose exec frontend env | grep NEXT_PUBLIC_API_URL
+```
+
+**Test API directly:**
+```bash
+curl http://localhost:8080/api/health
+# Should return: {"status":"healthy"}
+```
+
+**CORS issues in browser console:**
+- Check `CORS_ORIGINS` in API environment includes your frontend URL
+- Restart API after changing CORS settings
+
+### Memory issues
+
+**Worker crashes or jobs fail:**
+```bash
+# Check current memory limits
+docker stats
+
+# Increase worker memory in docker-compose.yml:
+services:
+  worker:
+    deploy:
+      resources:
+        limits:
+          memory: 16G  # Increase from 8G
+```
+
+### Permission denied errors on macOS
+
+```bash
+# Ensure Docker has access to the directory
+# Go to: System Preferences > Privacy & Security > Files and Folders
+# Enable Docker access
+
+# Or move project to standard location
+mv SemiPrimeDivide ~/Projects/
+cd ~/Projects/SemiPrimeDivide
+```
+
+### Image pull failures
+
+**Rate limit or network issues:**
+```bash
+# Use specific SHA digest for reliability
+docker pull ghcr.io/deenyoro/semiprime-api@sha256:19a99288dd29...
+
+# Or build locally instead
+docker compose up -d --build
+```
+
+### Complete reset
+
+If all else fails:
+```bash
+# Stop and remove everything
+docker compose down -v --remove-orphans
+
+# Remove all project images
+docker rmi $(docker images 'ghcr.io/deenyoro/semiprime-*' -q)
+
+# Clean Docker system
+docker system prune -a --volumes
+
+# Start fresh
+docker compose -f docker-compose.ghcr.yml up -d
+```
 
 ## API Reference
 
