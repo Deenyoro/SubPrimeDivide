@@ -22,6 +22,5 @@
 
   <!-- Subtle division mark (÷) integrated at the base to reference factoring/division -->
   <line class="sp-stroke" x1="108" y1="140" x2="148" y2="140"/>
-  <circle class="sp-fill" cx="128" cy="126" r="4"/>
   <circle class="sp-fill" cx="128" cy="154" r="4"/>
 </svg>

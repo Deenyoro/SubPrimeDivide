@@ -441,20 +441,6 @@ Full API docs available at http://localhost:8080/docs (Swagger UI).
 - `WS /api/jobs/{id}/stream` - Real-time log stream (WebSocket)
 - `POST /api/upload/csv` - Upload CSV
 
-## Contributing
-
-Contributions welcome! Areas for improvement:
-
-- GNFS integration (Cado-NFS)
-- Additional equation methods
-- Primality certificates (ECPP)
-- Distributed workers (across machines)
-- GPU acceleration (CUDA-ECM)
-
-## License
-
-MIT License - see LICENSE file
-
 ## References
 
 - [Miller-Rabin Primality Test](https://en.wikipedia.org/wiki/Miller%E2%80%93Rabin_primality_test)
@@ -463,10 +449,6 @@ MIT License - see LICENSE file
 - [General Number Field Sieve](https://en.wikipedia.org/wiki/General_number_field_sieve)
 - [GMP-ECM](https://www.loria.fr/~zimmerma/software/ecm/)
 - [RSA Factoring Challenge](https://en.wikipedia.org/wiki/RSA_Factoring_Challenge)
-
-## Support
-
-For issues or questions, please open an issue on GitHub or contact the maintainers.
 
 ---
 

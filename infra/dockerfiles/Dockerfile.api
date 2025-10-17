@@ -16,6 +16,8 @@ RUN apt-get update && apt-get install -y \
     libgmp-dev \
     libmpfr-dev \
     libmpc-dev \
+    libprimesieve-dev \
+    primesieve \
     pkg-config \
     git \
     curl \

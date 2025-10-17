@@ -17,7 +17,6 @@
     <circle class="sp-fill" cx="66" cy="54" r="3.5"/>
     <circle class="sp-fill" cx="94" cy="54" r="3.5"/>
     <line class="sp-stroke" x1="60" y1="110" x2="100" y2="110"/>
-    <circle class="sp-fill" cx="80" cy="99" r="3.5"/>
     <circle class="sp-fill" cx="80" cy="121" r="3.5"/>
   </g>
 
