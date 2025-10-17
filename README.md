@@ -1,6 +1,16 @@
-# SemiPrime Factor
+<div align="center">
+  <img src="./horizontallogo.svg" alt="SemiPrimeDivide" width="600" />
 
-A high-performance, equation-guided integer factorization service with Web UI, supporting multiple algorithms including Trial Division, Pollard-rho, ECM, and the custom Trurl equation-based method.
+  <p align="center">
+    <strong>High-performance, equation-guided integer factorization service</strong>
+  </p>
+
+  <p align="center">
+    Supporting multiple algorithms including Trial Division, Pollard-rho, ECM, and the custom Trurl equation-based method
+  </p>
+</div>
+
+---
 
 ## Features
 
@@ -13,6 +23,10 @@ A high-performance, equation-guided integer factorization service with Web UI, s
 - **Multi-Platform**: Runs on both x86_64 (Ubuntu) and ARM64 (macOS M-chip) via Docker Compose
 
 ## Architecture
+
+<div align="center">
+  <img src="./logo.svg" alt="SemiPrimeDivide Logo" width="120" />
+</div>
 
 ```
 ┌─────────────┐      ┌──────────────┐      ┌───────────────┐
@@ -448,4 +462,9 @@ For issues or questions, please open an issue on GitHub or contact the maintaine
 
 ---
 
-**Built with**: Python, FastAPI, Celery, PostgreSQL, Redis, Next.js, React, TailwindCSS, Docker
+<div align="center">
+  <img src="./logo.svg" alt="SemiPrimeDivide" width="80" />
+
+  <p><strong>Built with</strong></p>
+  <p>Python • FastAPI • Celery • PostgreSQL • Redis • Next.js • React • TailwindCSS • Docker</p>
+</div>
