@@ -62,6 +62,8 @@ services:
         condition: service_healthy
       queue:
         condition: service_healthy
+      cado-nfs:
+        condition: service_healthy
     environment:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
@@ -70,6 +72,7 @@ services:
     volumes:
       - ./api:/app
       - uploads:/app/uploads
+      - /var/run/docker.sock:/var/run/docker.sock  # Allow worker to call docker exec
     command: celery -A app.worker worker --loglevel=info --concurrency=4
     deploy:
       resources:

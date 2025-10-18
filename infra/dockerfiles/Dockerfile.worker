@@ -24,6 +24,7 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     gmp-ecm \
     libhwloc-dev \
+    docker.io \
     && rm -rf /var/lib/apt/lists/*
 
 # Note: CADO-NFS runs as a separate sidecar container (cado-nfs service)

@@ -37,12 +37,15 @@ services:
     depends_on:
       - db
       - queue
+      - cado-nfs
     deploy:
       replicas: 2
       resources:
         limits:
           cpus: "3.5"
           memory: 8G
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock  # Allow worker to call docker exec
 
   db:
     image: postgres:18-alpine
@@ -72,6 +75,21 @@ services:
       timeout: 3s
       retries: 5
 
+  cado-nfs:
+    image: registry.gitlab.inria.fr/cado-nfs/cado-nfs/factoring-full:latest
+    platform: linux/amd64  # CADO-NFS official container
+    container_name: cado-nfs
+    volumes:
+      - cado_workdir:/workdir
+    healthcheck:
+      test: ["CMD-SHELL", "cado-nfs.py -h >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    # Keep container running
+    command: tail -f /dev/null
+
 volumes:
   postgres_data:
   redis_data:
+  cado_workdir:
