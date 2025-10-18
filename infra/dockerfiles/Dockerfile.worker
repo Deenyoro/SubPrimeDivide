@@ -1,13 +1,5 @@
 # ============================================================================
-# Stage 1: Get pre-built CADO-NFS from official container
-# ============================================================================
-FROM registry.gitlab.inria.fr/cado-nfs/cado-nfs/factoring-full:latest AS cado-source
-
-# CADO-NFS official container has pre-built binaries - we just copy them
-# This eliminates compilation issues and is much faster
-
-# ============================================================================
-# Stage 2: Final runtime image
+# Worker image - CADO-NFS runs as separate sidecar container
 # ============================================================================
 FROM python:3.11-slim
 
@@ -34,14 +26,9 @@ RUN apt-get update && apt-get install -y \
     libhwloc-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy pre-built CADO-NFS from official container
-# CADO-NFS installs to /usr/local by default (make install PREFIX=/usr/local)
-# Driver script is in /usr/local/bin, data/libs in /usr/local/share/cado-nfs-*
-COPY --from=cado-source /usr/local/bin/cado-nfs.py /usr/local/bin/cado-nfs.py
-COPY --from=cado-source /usr/local/share/ /usr/local/share/
-
-# Ensure Python can find CADO-NFS bundled libraries
-ENV PYTHONPATH="/usr/local/share/cado-nfs-3.0.0/scripts:${PYTHONPATH}"
+# Note: CADO-NFS runs as a separate sidecar container (cado-nfs service)
+# Worker calls it via docker exec when needed for 200+ digit factorization
+# This avoids compilation issues and keeps the worker image slim
 
 WORKDIR /app
 

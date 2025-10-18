@@ -2,7 +2,11 @@
 CADO-NFS (General Number Field Sieve) wrapper for large semiprime factorization.
 
 CADO-NFS is the industry-standard GNFS implementation for factoring 200+ digit composites.
-This wrapper interfaces with the cado-nfs.py script and provides progress monitoring.
+This wrapper calls the official CADO-NFS container running as a sidecar service.
+
+Architecture:
+    Worker → docker exec cado-nfs → cado-nfs.py (in official container)
+    This avoids compilation issues and uses pre-built official binaries.
 """
 
 import subprocess
@@ -14,8 +18,20 @@ import tempfile
 from pathlib import Path
 from typing import Optional, Tuple, Callable
 
-# Check if cado-nfs.py is available
-HAS_CADO = shutil.which("cado-nfs.py") is not None
+# Check if cado-nfs container is available
+def check_cado_available() -> bool:
+    """Check if cado-nfs sidecar container is running."""
+    try:
+        result = subprocess.run(
+            ["docker", "exec", "cado-nfs", "cado-nfs.py", "-h"],
+            capture_output=True,
+            timeout=5
+        )
+        return result.returncode == 0
+    except:
+        return False
+
+HAS_CADO = check_cado_available()
 
 
 def cado_nfs_factor(
@@ -46,28 +62,25 @@ def cado_nfs_factor(
     """
     if not HAS_CADO:
         if callback:
-            callback("CADO-NFS not available. Install cado-nfs package.")
+            callback("CADO-NFS not available. Ensure cado-nfs container is running.")
         return None
 
-    # Create working directory
-    cleanup_workdir = False
+    # CADO-NFS runs in sidecar container with /workdir volume
+    # Use /workdir in container for all operations
     if workdir is None:
-        workdir = tempfile.mkdtemp(prefix=f"cado_nfs_{n % 1000000}_")
-        cleanup_workdir = True
-
-    workdir_path = Path(workdir)
-    workdir_path.mkdir(parents=True, exist_ok=True)
-
-    # Write number to input file
-    input_file = workdir_path / "input.txt"
-    input_file.write_text(str(n))
+        # Use timestamp-based workdir inside container
+        workdir = f"/workdir/cado_{int(time.time())}_{n % 1000000}"
+    else:
+        # Map host workdir to container path
+        workdir = f"/workdir/{Path(workdir).name}"
 
     try:
-        # Build CADO-NFS command
+        # Build CADO-NFS command to run in container via docker exec
         cmd = [
+            "docker", "exec", "cado-nfs",
             "cado-nfs.py",
             str(n),
-            f"--workdir={workdir}",
+            f"workdir={workdir}",
             f"--threads={threads}",
         ]
 
@@ -91,8 +104,7 @@ def cado_nfs_factor(
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            bufsize=1,  # Line buffered
-            cwd=workdir
+            bufsize=1  # Line buffered
         )
 
         start_time = time.time()
@@ -141,18 +153,22 @@ def cado_nfs_factor(
         if factors and len(factors) == 2:
             return tuple(sorted(factors))
 
-        # Check output files for factors
+        # Try to check output files for factors via docker exec
         # CADO-NFS writes factors to <workdir>/<n>.factors.txt
-        factors_file = workdir_path / f"{n}.factors.txt"
-        if factors_file.exists():
-            content = factors_file.read_text().strip()
-            numbers = re.findall(r'\d+', content)
-            if len(numbers) >= 2:
-                p, q = int(numbers[0]), int(numbers[1])
-                if p * q == n:
-                    if callback:
-                        callback(f"CADO-NFS: Found factors in output file: {p} × {q}")
-                    return tuple(sorted([p, q]))
+        try:
+            factors_file_cmd = ["docker", "exec", "cado-nfs", "cat", f"{workdir}/{n}.factors.txt"]
+            result = subprocess.run(factors_file_cmd, capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                content = result.stdout.strip()
+                numbers = re.findall(r'\d+', content)
+                if len(numbers) >= 2:
+                    p, q = int(numbers[0]), int(numbers[1])
+                    if p * q == n:
+                        if callback:
+                            callback(f"CADO-NFS: Found factors in output file: {p} × {q}")
+                        return tuple(sorted([p, q]))
+        except:
+            pass  # File doesn't exist or error reading
 
         if callback:
             callback("CADO-NFS: Factorization incomplete (no factors found)")
@@ -168,14 +184,6 @@ def cado_nfs_factor(
         if callback:
             callback(f"CADO-NFS error: {e}")
         return None
-
-    finally:
-        # Cleanup temporary workdir if created
-        if cleanup_workdir and workdir_path.exists():
-            try:
-                shutil.rmtree(workdir)
-            except:
-                pass  # Best effort cleanup
 
 
 def estimate_cado_runtime(digit_count: int) -> dict:
