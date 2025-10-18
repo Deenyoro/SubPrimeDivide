@@ -30,12 +30,13 @@ RUN apt-get update && apt-get install -y \
 
 # Build CADO-NFS from source
 # Note: CADO-NFS is required for 200+ digit semiprimes (RSA-class numbers)
-# This is a large build (~10-20 min) but necessary for the full feature set
+# This is a large build (~15-30 min) but necessary for the full feature set
+# Use -j2 to limit memory usage during compilation (avoid OOM on CI/CD runners)
 RUN cd /tmp && \
     git clone https://gitlab.inria.fr/cado-nfs/cado-nfs.git && \
     cd cado-nfs && \
     git checkout 2.3.0 && \
-    make -j$(nproc) && \
+    make -j2 && \
     make install PREFIX=/usr/local && \
     cd / && rm -rf /tmp/cado-nfs
 
