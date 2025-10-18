@@ -19,6 +19,8 @@ RUN apt-get update && apt-get install -y \
     libprimesieve-dev \
     primesieve \
     pkg-config \
+    pari-gp \
+    libpari-dev \
     git \
     curl \
     && rm -rf /var/lib/apt/lists/*

@@ -14,7 +14,7 @@ LABEL org.opencontainers.image.description="SemiPrime Factor Celery Worker"
 LABEL org.opencontainers.image.version="${GIT_COMMIT}"
 LABEL org.opencontainers.image.created="${BUILD_DATE}"
 
-# Install build dependencies (needed for primesieve Python package compilation)
+# Install build dependencies (needed for primesieve and cypari2 Python packages)
 RUN apt-get update && apt-get install -y \
     build-essential \
     g++ \
@@ -25,6 +25,8 @@ RUN apt-get update && apt-get install -y \
     libprimesieve-dev \
     primesieve \
     pkg-config \
+    pari-gp \
+    libpari-dev \
     gmp-ecm \
     libhwloc-dev \
     docker.io \
