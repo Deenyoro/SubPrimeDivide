@@ -333,9 +333,9 @@ export default function JobDetail() {
                         </Badge>
                       )}
                     </h3>
-                    <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">
+                    <p className="text-sm text-gray-700 dark:text-gray-300 mt-1 break-all">
                       {job.current_candidate ? (
-                        <>Testing candidate: <span className="font-mono font-semibold">{job.current_candidate}</span></>
+                        <>Testing candidate: <span className="font-mono font-semibold break-all">{job.current_candidate}</span></>
                       ) : (
                         <>Progress: {job.progress_percent}% • Elapsed: {formatDuration(job.elapsed_seconds)}</>
                       )}
@@ -407,7 +407,7 @@ export default function JobDetail() {
                   <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Lower Bound
                   </h3>
-                  <p className="font-mono text-sm text-gray-900 dark:text-gray-100">
+                  <p className="font-mono text-sm text-gray-900 dark:text-gray-100 break-all">
                     {job.lower_bound}
                   </p>
                 </div>
@@ -417,7 +417,7 @@ export default function JobDetail() {
                   <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Upper Bound
                   </h3>
-                  <p className="font-mono text-sm text-gray-900 dark:text-gray-100">
+                  <p className="font-mono text-sm text-gray-900 dark:text-gray-100 break-all">
                     {job.upper_bound}
                   </p>
                 </div>

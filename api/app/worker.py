@@ -566,7 +566,7 @@ def run_factorization_task(job_id: str):
                         job.progress_percent = int(75 + (progress * 0.20))
                         job.current_candidate = str(prime)
                         add_log(db, job_id, "INFO",
-                               f"Checked {count:,} primes. Current: {prime:.6e}",
+                               f"Checked {count:,} primes. Current: {int(prime):,}",
                                "equation_search")
                         db.commit()
 
