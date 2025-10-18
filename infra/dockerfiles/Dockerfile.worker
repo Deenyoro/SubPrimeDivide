@@ -1,7 +1,7 @@
 # ============================================================================
 # Worker image - CADO-NFS runs as separate sidecar container
 # ============================================================================
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 # Build arguments for CI/CD
 ARG GIT_COMMIT=unknown
