@@ -63,7 +63,7 @@ services:
       queue:
         condition: service_healthy
       cado-nfs:
-        condition: service_healthy
+        condition: service_started
     environment:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
