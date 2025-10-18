@@ -14,8 +14,11 @@ LABEL org.opencontainers.image.description="SemiPrime Factor Celery Worker"
 LABEL org.opencontainers.image.version="${GIT_COMMIT}"
 LABEL org.opencontainers.image.created="${BUILD_DATE}"
 
-# Install runtime dependencies (no build tools needed)
+# Install build dependencies (needed for primesieve Python package compilation)
 RUN apt-get update && apt-get install -y \
+    build-essential \
+    g++ \
+    gcc \
     libgmp-dev \
     libmpfr-dev \
     libmpc-dev \
