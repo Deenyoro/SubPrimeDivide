@@ -11,7 +11,7 @@ python-multipart==0.0.6
 websockets==15.0
 gmpy2==2.2.1
 primesieve==2.3.2
-cypari2==2.2.0
+cypari2==2.2.2
 passagemath-libecm==10.6.31rc1
 sympy==1.14.0
 numexpr==2.14.1
