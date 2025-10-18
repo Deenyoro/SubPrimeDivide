@@ -35,11 +35,13 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy pre-built CADO-NFS from official container
-# The official CADO-NFS container has everything in /cado-nfs
-COPY --from=cado-source /cado-nfs /opt/cado-nfs
+# CADO-NFS installs to /usr/local by default (make install PREFIX=/usr/local)
+# Driver script is in /usr/local/bin, data/libs in /usr/local/share/cado-nfs-*
+COPY --from=cado-source /usr/local/bin/cado-nfs.py /usr/local/bin/cado-nfs.py
+COPY --from=cado-source /usr/local/share/ /usr/local/share/
 
-# Add CADO-NFS to PATH
-ENV PATH="/opt/cado-nfs:${PATH}"
+# Ensure Python can find CADO-NFS bundled libraries
+ENV PYTHONPATH="/usr/local/share/cado-nfs-3.0.0/scripts:${PYTHONPATH}"
 
 WORKDIR /app
 
