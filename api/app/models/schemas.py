@@ -29,11 +29,13 @@ class AlgorithmPolicy(BaseModel):
     trial_division_limit: Optional[int] = 10**7
     use_pollard_rho: bool = True
     pollard_rho_iterations: int = 1000000
+    use_shor_classical: bool = False  # Classical order-finding (like Pollard's p-1)
     use_ecm: bool = True
     use_ecm_enhanced: bool = True  # Use enhanced ECM with checkpointing
     use_batch_gcd: bool = False  # For bulk operations
     use_bpsw: bool = True  # Use BPSW instead of Miller-Rabin alone
     use_equation_bounds: bool = True
+    force_cado_nfs: bool = False  # Force CADO-NFS even for numbers < 200 digits
     generate_certificates: bool = False  # Generate primality certificates
     max_time_per_stage: Optional[int] = None  # Max seconds per algorithm stage
 

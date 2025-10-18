@@ -396,8 +396,9 @@ def run_factorization_task(job_id: str):
         # Stage 6: CADO-NFS (for 200+ digit semiprimes - production GNFS)
         if not found_factors:
             digit_count = len(str(n))
-            if digit_count >= 200:  # CADO-NFS is the right tool for RSA-scale numbers
-                add_log(db, job_id, "INFO", "Stage 6: CADO-NFS (General Number Field Sieve)", "cado_nfs")
+            force_cado = policy.get("force_cado_nfs", False)
+            if digit_count >= 200 or force_cado:  # CADO-NFS for large numbers or when forced
+                add_log(db, job_id, "INFO", f"Stage 6: CADO-NFS (General Number Field Sieve){'- FORCED' if force_cado else ''}", "cado_nfs")
                 job.progress_percent = 75
                 db.commit()
 

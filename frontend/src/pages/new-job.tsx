@@ -150,6 +150,51 @@ const DIFFICULTY_LEVELS = [
     mode: 'equation_guided',
     algorithms: { trial: false, rho: false, ecm: false, equation: true }
   },
+  {
+    name: '60-Digit ECM Target',
+    digits: 60,
+    desc: 'ECM algorithm (days-weeks)',
+    icon: '🚀',
+    color: 'cyan',
+    mode: 'full',
+    algorithms: { trial: true, rho: true, ecm: true, equation: true }
+  },
+  {
+    name: '80-Digit Challenge',
+    digits: 80,
+    desc: 'ECM intensive (weeks-months)',
+    icon: '🌠',
+    color: 'teal',
+    mode: 'full',
+    algorithms: { trial: true, rho: true, ecm: true, equation: true }
+  },
+  {
+    name: '100-Digit Extreme',
+    digits: 100,
+    desc: 'Advanced ECM (months)',
+    icon: '💫',
+    color: 'violet',
+    mode: 'full',
+    algorithms: { trial: true, rho: true, ecm: true, equation: true }
+  },
+  {
+    name: '150-Digit GNFS',
+    digits: 150,
+    desc: 'CADO-NFS required (months)',
+    icon: '🔮',
+    color: 'fuchsia',
+    mode: 'full',
+    algorithms: { trial: true, rho: true, ecm: true, equation: true }
+  },
+  {
+    name: '200-Digit Ultimate',
+    digits: 200,
+    desc: 'CADO-NFS extreme (years)',
+    icon: '🌟',
+    color: 'rose',
+    mode: 'full',
+    algorithms: { trial: true, rho: true, ecm: true, equation: true }
+  },
 ]
 
 export default function NewJob() {
@@ -169,8 +214,9 @@ export default function NewJob() {
     trial_division_limit: '10000000',
     use_pollard_rho: false,
     pollard_rho_iterations: '1000000',
-    use_shor_classical: true,
+    use_shor_classical: false,
     use_ecm: false,
+    force_cado_nfs: false,
     use_bpsw: true,
     generate_certificates: false,
   })
@@ -225,6 +271,7 @@ export default function NewJob() {
           pollard_rho_iterations: parseInt(formData.pollard_rho_iterations) || 1000000,
           use_shor_classical: formData.use_shor_classical,
           use_ecm: formData.use_ecm,
+          force_cado_nfs: formData.force_cado_nfs,
           use_bpsw: formData.use_bpsw,
           generate_certificates: formData.generate_certificates,
         },
@@ -255,8 +302,8 @@ export default function NewJob() {
 
   const generateCustom = () => {
     const digits = parseInt(customDigits)
-    if (isNaN(digits) || digits < 10 || digits > 50) {
-      alert('Please enter a digit count between 10 and 50')
+    if (isNaN(digits) || digits < 10 || digits > 300) {
+      alert('Please enter a digit count between 10 and 300')
       return
     }
 
@@ -282,7 +329,11 @@ export default function NewJob() {
     if (digits < 20) return { level: 'medium', text: 'Equation-guided (~hours to half-day)', color: 'text-yellow-600 dark:text-yellow-400' }
     if (digits < 25) return { level: 'hard', text: 'Long search (~1-3 days)', color: 'text-orange-600 dark:text-orange-400' }
     if (digits < 35) return { level: 'very-hard', text: 'Epic grind (~weeks)', color: 'text-red-600 dark:text-red-400' }
-    return { level: 'extreme', text: 'Legendary quest (~months)', color: 'text-purple-600 dark:text-purple-400' }
+    if (digits < 50) return { level: 'extreme', text: 'Legendary quest (~months)', color: 'text-purple-600 dark:text-purple-400' }
+    if (digits < 80) return { level: 'ecm', text: 'ECM algorithm required (~weeks to months)', color: 'text-cyan-600 dark:text-cyan-400' }
+    if (digits < 120) return { level: 'advanced-ecm', text: 'Advanced ECM (~months)', color: 'text-violet-600 dark:text-violet-400' }
+    if (digits < 180) return { level: 'gnfs', text: 'CADO-NFS GNFS required (~months to year)', color: 'text-fuchsia-600 dark:text-fuchsia-400' }
+    return { level: 'ultimate', text: 'CADO-NFS extreme factorization (~years)', color: 'text-rose-600 dark:text-rose-400' }
   }
 
   return (
@@ -525,6 +576,25 @@ export default function NewJob() {
                         </label>
                       </div>
 
+                      <div className="bg-fuchsia-50 dark:bg-fuchsia-900/20 p-3 rounded-lg">
+                        <label className="flex items-start cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={formData.force_cado_nfs}
+                            onChange={(e) => setFormData({ ...formData, force_cado_nfs: e.target.checked })}
+                            className="mt-1 mr-3"
+                          />
+                          <div>
+                            <span className="text-sm font-medium text-gray-900 dark:text-white">
+                              Force CADO-NFS (GNFS)
+                            </span>
+                            <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                              Force General Number Field Sieve for numbers &lt; 200 digits (extremely intensive)
+                            </p>
+                          </div>
+                        </label>
+                      </div>
+
                       <div className="bg-indigo-50 dark:bg-indigo-900/20 p-3 rounded-lg">
                         <label className="flex items-start cursor-pointer">
                           <input
@@ -718,14 +788,14 @@ export default function NewJob() {
                 <input
                   type="number"
                   min="10"
-                  max="50"
+                  max="300"
                   value={customDigits}
                   onChange={(e) => setCustomDigits(e.target.value)}
                   className="input-field w-full text-center text-2xl font-bold"
                   placeholder="20"
                 />
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  Range: 10-50 digits
+                  Range: 10-300 digits
                 </p>
               </div>
 
@@ -736,14 +806,22 @@ export default function NewJob() {
                   parseInt(customDigits) < 20 ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-300 dark:border-yellow-700' :
                   parseInt(customDigits) < 25 ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-300 dark:border-orange-700' :
                   parseInt(customDigits) < 35 ? 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700' :
-                  'bg-purple-50 dark:bg-purple-900/20 border-purple-300 dark:border-purple-700'
+                  parseInt(customDigits) < 50 ? 'bg-purple-50 dark:bg-purple-900/20 border-purple-300 dark:border-purple-700' :
+                  parseInt(customDigits) < 80 ? 'bg-cyan-50 dark:bg-cyan-900/20 border-cyan-300 dark:border-cyan-700' :
+                  parseInt(customDigits) < 120 ? 'bg-violet-50 dark:bg-violet-900/20 border-violet-300 dark:border-violet-700' :
+                  parseInt(customDigits) < 180 ? 'bg-fuchsia-50 dark:bg-fuchsia-900/20 border-fuchsia-300 dark:border-fuchsia-700' :
+                  'bg-rose-50 dark:bg-rose-900/20 border-rose-300 dark:border-rose-700'
                 }`}>
                   <div className="flex items-start gap-2">
                     <span className="text-xl">
                       {parseInt(customDigits) < 15 ? '✅' :
                        parseInt(customDigits) < 20 ? '⚠️' :
                        parseInt(customDigits) < 25 ? '🔥' :
-                       parseInt(customDigits) < 35 ? '💀' : '🌋'}
+                       parseInt(customDigits) < 35 ? '💀' :
+                       parseInt(customDigits) < 50 ? '🌋' :
+                       parseInt(customDigits) < 80 ? '🚀' :
+                       parseInt(customDigits) < 120 ? '💫' :
+                       parseInt(customDigits) < 180 ? '🔮' : '🌟'}
                     </span>
                     <div>
                       <div className={`font-semibold text-sm ${getDifficultyWarning(parseInt(customDigits)).color}`}>
@@ -780,7 +858,7 @@ export default function NewJob() {
                   variant="primary"
                   className="flex-1"
                   loading={generating}
-                  disabled={generating || parseInt(customDigits) < 10 || parseInt(customDigits) > 50 || isNaN(parseInt(customDigits))}
+                  disabled={generating || parseInt(customDigits) < 10 || parseInt(customDigits) > 300 || isNaN(parseInt(customDigits))}
                 >
                   {generating ? 'Generating...' : 'Generate & Fill Form'}
                 </Button>
