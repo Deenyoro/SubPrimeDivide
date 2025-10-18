@@ -1,7 +1,7 @@
 """
 Pydantic models for request/response validation
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from enum import Enum
@@ -30,7 +30,12 @@ class AlgorithmPolicy(BaseModel):
     use_pollard_rho: bool = True
     pollard_rho_iterations: int = 1000000
     use_ecm: bool = True
+    use_ecm_enhanced: bool = True  # Use enhanced ECM with checkpointing
+    use_batch_gcd: bool = False  # For bulk operations
+    use_bpsw: bool = True  # Use BPSW instead of Miller-Rabin alone
     use_equation_bounds: bool = True
+    generate_certificates: bool = False  # Generate primality certificates
+    max_time_per_stage: Optional[int] = None  # Max seconds per algorithm stage
 
 
 class ECMParams(BaseModel):
@@ -38,6 +43,13 @@ class ECMParams(BaseModel):
     stages: List[tuple[int, int]] = Field(
         default=[(10000, 25), (50000, 100), (250000, 200)]
     )
+    # Enhanced ECM parameters
+    use_checkpointing: bool = True
+    checkpoint_interval: int = 100  # Save state every N curves
+    B1: Optional[int] = None  # Override B1 (auto-computed if None)
+    B2: Optional[int] = None  # Override B2 (auto-computed if None)
+    max_curves: Optional[int] = None  # Override max curves
+    timeout_seconds: Optional[float] = None  # Timeout for ECM stage
 
 
 class JobCreate(BaseModel):
@@ -58,6 +70,7 @@ class JobResponse(BaseModel):
     id: str
     created_at: datetime
     started_at: Optional[datetime]
+    completed_at: Optional[datetime]
     finished_at: Optional[datetime]
     n: str
     mode: JobModeEnum
@@ -69,6 +82,30 @@ class JobResponse(BaseModel):
     error_message: Optional[str]
     factors_found: Optional[List[str]]
     total_time_seconds: Optional[int]
+    elapsed_seconds: Optional[int]
+    use_equation: bool
+    algorithm_policy: Optional[AlgorithmPolicy]
+    ecm_params: Optional[ECMParams]
+
+    @field_validator('algorithm_policy', mode='before')
+    @classmethod
+    def parse_algorithm_policy(cls, v):
+        """Parse algorithm_policy from JSON dict if needed"""
+        if v is None:
+            return AlgorithmPolicy()
+        if isinstance(v, dict):
+            return AlgorithmPolicy(**v)
+        return v
+
+    @field_validator('ecm_params', mode='before')
+    @classmethod
+    def parse_ecm_params(cls, v):
+        """Parse ecm_params from JSON dict if needed"""
+        if v is None:
+            return ECMParams()
+        if isinstance(v, dict):
+            return ECMParams(**v)
+        return v
 
     class Config:
         from_attributes = True
@@ -81,7 +118,10 @@ class JobControlAction(BaseModel):
 
 class JobLogEntry(BaseModel):
     """Single log entry"""
+    id: int
+    job_id: str
     timestamp: datetime
+    created_at: datetime
     level: str
     message: str
     stage: Optional[str]
@@ -93,12 +133,17 @@ class JobLogEntry(BaseModel):
 
 class JobResultEntry(BaseModel):
     """Single result entry"""
+    id: int
+    job_id: str
     factor: str
     is_prime: Optional[bool]
     certificate: Optional[str]
     found_at: datetime
+    created_at: datetime
     found_by_algorithm: str
+    algorithm: str
     elapsed_ms: int
+    elapsed_seconds: float
 
     class Config:
         from_attributes = True

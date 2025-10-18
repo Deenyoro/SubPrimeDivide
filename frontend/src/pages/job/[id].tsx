@@ -29,6 +29,13 @@ export default function JobDetail() {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [showCharts, setShowCharts] = useState(false)
 
+  // Auto-expand charts for running jobs
+  useEffect(() => {
+    if (job && (job.status === 'running' || job.status === 'pending')) {
+      setShowCharts(true)
+    }
+  }, [job?.status])
+
   // Fetch job details
   useEffect(() => {
     if (!id) return
@@ -174,11 +181,11 @@ export default function JobDetail() {
   const progressTimelineData = useMemo(() => {
     // Extract progress updates from logs
     const progressLogs = logs
-      .filter(log => log.message.includes('progress') || log.message.includes('%'))
+      .filter(log => log?.message && (log.message.includes('progress') || log.message.includes('%')))
       .map(log => {
-        const timeStr = new Date(log.created_at).toLocaleTimeString()
+        const timeStr = log.created_at ? new Date(log.created_at).toLocaleTimeString() : 'Unknown'
         // Try to extract percentage from message
-        const percentMatch = log.message.match(/(\d+(?:\.\d+)?)\s*%/)
+        const percentMatch = log.message?.match(/(\d+(?:\.\d+)?)\s*%/)
         const value = percentMatch ? parseFloat(percentMatch[1]) : 0
         return { time: timeStr, value, label: log.stage || 'Progress' }
       })
@@ -201,27 +208,27 @@ export default function JobDetail() {
 
     // Find diagnostic log with payload
     const diagnosticLog = logs.find(log =>
-      log.stage === 'equation' &&
-      log.message.includes('Diagnostic report') &&
-      log.payload
+      log?.stage === 'equation' &&
+      log?.message?.includes('Diagnostic report') &&
+      log?.payload
     )
 
     // Find bounds log
     const boundsLog = logs.find(log =>
-      log.stage === 'equation' &&
-      log.message.includes('Trurl bounds')
+      log?.stage === 'equation' &&
+      log?.message?.includes('Trurl bounds')
     )
 
     // Find constraint verification log
     const constraintLog = logs.find(log =>
-      log.stage === 'equation_search' &&
-      log.message.includes('constraints') &&
-      log.payload?.constraints
+      log?.stage === 'equation_search' &&
+      log?.message?.includes('constraints') &&
+      log?.payload?.constraints
     )
 
     // Extract x where y=1 from bounds log
     let xWhenYEquals1: number | undefined
-    if (boundsLog) {
+    if (boundsLog?.message) {
       const match = boundsLog.message.match(/lower\s*=\s*10\^([\d.]+)/)
       if (match) {
         xWhenYEquals1 = Math.pow(10, parseFloat(match[1]))
@@ -307,6 +314,49 @@ export default function JobDetail() {
             </Link>
           </div>
 
+          {/* Live Status Banner for Running Jobs */}
+          {(job.status === 'running' || job.status === 'pending') && (
+            <Card className="mb-6 bg-gradient-to-r from-blue-50 via-purple-50 to-pink-50 dark:from-blue-900/20 dark:via-purple-900/20 dark:to-pink-900/20 border-2 border-blue-500 dark:border-blue-400">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-blue-500 dark:bg-blue-600 rounded-full flex items-center justify-center animate-pulse">
+                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                      {job.status === 'running' ? '⚡ Job Running' : '⏳ Job Pending'}
+                      {wsConnected && (
+                        <Badge variant="success" size="sm">
+                          <span className="animate-pulse mr-1">●</span> LIVE
+                        </Badge>
+                      )}
+                    </h3>
+                    <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">
+                      {job.current_candidate ? (
+                        <>Testing candidate: <span className="font-mono font-semibold">{job.current_candidate}</span></>
+                      ) : (
+                        <>Progress: {job.progress_percent}% • Elapsed: {formatDuration(job.elapsed_seconds)}</>
+                      )}
+                    </p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-3xl font-bold text-blue-600 dark:text-blue-400">
+                    {job.progress_percent}%
+                  </div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    {job.elapsed_seconds ? `${Math.floor(job.elapsed_seconds / 60)}m ${job.elapsed_seconds % 60}s` : 'Starting...'}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-4">
+                <ProgressBar percent={job.progress_percent} size="lg" animated={true} />
+              </div>
+            </Card>
+          )}
+
           {/* Job Overview */}
           <Card className="mb-6">
             <div className="flex justify-between items-start mb-6">
@@ -322,7 +372,7 @@ export default function JobDetail() {
                 <StatusBadge status={job.status} />
                 {wsConnected && (
                   <Badge variant="success" size="sm">
-                    <span className="mr-1">●</span> Live
+                    <span className="mr-1 animate-pulse">●</span> Live
                   </Badge>
                 )}
               </div>
@@ -411,23 +461,25 @@ export default function JobDetail() {
             </div>
 
             {/* Algorithm Policy */}
-            <div className="mb-6">
-              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Algorithm Configuration
-              </h3>
-              <div className="flex flex-wrap gap-2">
-                {job.use_equation && <Badge variant="info">Equation-Guided</Badge>}
-                {job.algorithm_policy.use_trial_division && (
-                  <Badge variant="info">
-                    Trial Division (limit: {job.algorithm_policy.trial_division_limit.toLocaleString()})
-                  </Badge>
-                )}
-                {job.algorithm_policy.use_pollard_rho && (
-                  <Badge variant="info">Pollard-rho</Badge>
-                )}
-                {job.algorithm_policy.use_ecm && <Badge variant="info">ECM</Badge>}
+            {job.algorithm_policy && (
+              <div className="mb-6">
+                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Algorithm Configuration
+                </h3>
+                <div className="flex flex-wrap gap-2">
+                  {job.use_equation && <Badge variant="info">Equation-Guided</Badge>}
+                  {job.algorithm_policy.use_trial_division && (
+                    <Badge variant="info">
+                      Trial Division (limit: {job.algorithm_policy.trial_division_limit?.toLocaleString() || 'default'})
+                    </Badge>
+                  )}
+                  {job.algorithm_policy.use_pollard_rho && (
+                    <Badge variant="info">Pollard-rho</Badge>
+                  )}
+                  {job.algorithm_policy.use_ecm && <Badge variant="info">ECM</Badge>}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Error Message */}
             {job.error_message && (
@@ -471,14 +523,21 @@ export default function JobDetail() {
             </div>
           </Card>
 
-          {/* Equation Analysis Section */}
+          {/* Equation Analysis Section - Show during AND after execution */}
           {job.use_equation && equationData && (
             <Card className="mb-6">
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
-                🧮 Trurl Equation Analysis
-              </h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                  🧮 Trurl Equation Analysis
+                  {(job.status === 'running' || job.status === 'pending') && (
+                    <Badge variant="info" size="sm">
+                      <span className="animate-pulse mr-1">●</span> Live Graph
+                    </Badge>
+                  )}
+                </h2>
+              </div>
 
-              {/* Equation Curve Visualization */}
+              {/* Equation Curve Visualization - Always show if we have data */}
               {equationData.hasCurveData && (
                 <div className="mb-6">
                   <EquationCurveChart
@@ -661,6 +720,9 @@ export default function JobDetail() {
                         Prime?
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                        Certificate
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
                         Time
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
@@ -682,6 +744,26 @@ export default function JobDetail() {
                             <Badge variant="success">Prime</Badge>
                           ) : (
                             <Badge variant="warning">Composite</Badge>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                          {result.certificate ? (
+                            <button
+                              onClick={() => {
+                                const blob = new Blob([result.certificate], { type: 'application/json' })
+                                const url = URL.createObjectURL(blob)
+                                const a = document.createElement('a')
+                                a.href = url
+                                a.download = `certificate-${result.factor.substring(0, 10)}.json`
+                                a.click()
+                                URL.revokeObjectURL(url)
+                              }}
+                              className="text-indigo-600 dark:text-indigo-400 hover:underline"
+                            >
+                              Download
+                            </button>
+                          ) : (
+                            <span className="text-gray-400 dark:text-gray-600">-</span>
                           )}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">

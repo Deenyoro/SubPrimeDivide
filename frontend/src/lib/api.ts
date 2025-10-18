@@ -12,7 +12,7 @@ export interface Job {
   lower_bound?: string
   upper_bound?: string
   use_equation: boolean
-  algorithm_policy: AlgorithmPolicy
+  algorithm_policy?: AlgorithmPolicy
   error_message?: string
   started_at?: string
   completed_at?: string

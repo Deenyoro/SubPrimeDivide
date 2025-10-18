@@ -3,6 +3,7 @@ interface ProgressBarProps {
   showLabel?: boolean
   size?: 'sm' | 'md' | 'lg'
   color?: 'blue' | 'green' | 'yellow' | 'red'
+  animated?: boolean
 }
 
 export default function ProgressBar({
@@ -10,6 +11,7 @@ export default function ProgressBar({
   showLabel = true,
   size = 'md',
   color = 'blue',
+  animated = false,
 }: ProgressBarProps) {
   const heights = {
     sm: 'h-1',
@@ -26,9 +28,9 @@ export default function ProgressBar({
 
   return (
     <div className="flex items-center gap-2 w-full">
-      <div className={`flex-1 bg-gray-200 dark:bg-gray-700 rounded-full ${heights[size]}`}>
+      <div className={`flex-1 bg-gray-200 dark:bg-gray-700 rounded-full ${heights[size]} overflow-hidden`}>
         <div
-          className={`${colors[color]} ${heights[size]} rounded-full transition-all duration-300`}
+          className={`${colors[color]} ${heights[size]} rounded-full transition-all duration-300 ${animated ? 'animate-pulse' : ''}`}
           style={{ width: `${Math.min(100, Math.max(0, percent))}%` }}
         ></div>
       </div>

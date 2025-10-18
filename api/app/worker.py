@@ -34,14 +34,22 @@ def run_factorization_task(job_id: str):
         job_id: Job UUID
 
     This task orchestrates the entire factorization pipeline:
-    1. Load job configuration
-    2. Initialize equation solver if enabled
-    3. Try quick algorithms first (trial division, Pollard-rho)
-    4. Escalate to ECM if needed
-    5. Report results
+    1. Primality check (exit if n is prime)
+    2. Trial division (fast check for small factors)
+    3. Pollard-rho (probabilistic for medium factors)
+    4. Shor's algorithm - classical emulation (order-finding on smooth orders)
+    5. ECM (elliptic curve method)
+    6. Advanced ECM (for 30+ digit factors)
+    7. Trurl equation-guided search (if enabled)
+    8. Report results
     """
     from app.models import get_engine, get_session_factory, Job, JobLog, JobResult, JobStatus
-    from app.algos import is_prime_mr, pollard_rho, ecm_factor, trial_division_with_wheel
+    from app.algos import (
+        is_prime_mr, is_prime_bpsw, is_prime_fast,
+        pollard_rho, ecm_factor, trial_division_with_wheel, shor_classical_multi_attempt,
+        ecm_factor_enhanced, suggest_ecm_params_enhanced,
+        generate_certificate_simple
+    )
     from app.equations import SemiPrimeEquationSolver
     from primesieve import Iterator
     import gmpy2
@@ -73,10 +81,34 @@ def run_factorization_task(job_id: str):
 
         start_time = time.time()
 
-        # Check if already prime
-        add_log(db, job_id, "INFO", "Checking if number is prime...", "primality_check")
-        if is_prime_mr(n):
+        # Parse algorithm policy to determine primality test
+        policy = job.algorithm_policy or {}
+        use_bpsw = policy.get("use_bpsw", True)
+        generate_certs = policy.get("generate_certificates", False)
+
+        # Check if already prime using BPSW (more rigorous) or Miller-Rabin
+        add_log(db, job_id, "INFO",
+               f"Checking if number is prime using {'BPSW' if use_bpsw else 'Miller-Rabin'}...",
+               "primality_check")
+
+        primality_test = is_prime_fast if use_bpsw else is_prime_mr
+        if primality_test(n):
             add_log(db, job_id, "INFO", "Number is prime (no factorization possible)", "primality_check")
+
+            # Generate certificate if requested
+            if generate_certs:
+                try:
+                    cert = generate_certificate_simple(n)
+                    if cert:
+                        add_log(db, job_id, "INFO",
+                               f"Generated primality certificate with {len(cert.steps)} steps",
+                               "primality_check",
+                               payload={"certificate": cert.to_json()})
+                except Exception as e:
+                    add_log(db, job_id, "WARNING",
+                           f"Failed to generate certificate: {e}",
+                           "primality_check")
+
             job.status = JobStatus.COMPLETED
             job.finished_at = datetime.utcnow()
             job.total_time_seconds = int(time.time() - start_time)
@@ -145,8 +177,7 @@ def run_factorization_task(job_id: str):
                    "equation",
                    payload=strategy)
 
-        # Parse algorithm policy
-        policy = job.algorithm_policy or {}
+        # Algorithm policy already parsed above for primality test
         use_trial_division = policy.get("use_trial_division", True)
         trial_limit = int(policy.get("trial_division_limit", 10**7))
         use_pollard_rho = policy.get("use_pollard_rho", True)
@@ -165,14 +196,16 @@ def run_factorization_task(job_id: str):
             if factor:
                 elapsed_ms = int((time.time() - start_time) * 1000)
                 add_log(db, job_id, "INFO", f"Found factor via trial division: {factor}", "trial_division")
-                record_factor(db, job_id, factor, "trial_division", elapsed_ms)
+                record_factor(db, job_id, factor, "trial_division", elapsed_ms,
+                            primality_test, generate_certs)
                 found_factors.append(factor)
 
                 cofactor = n // factor
                 if cofactor > 1 and cofactor != factor:
-                    if is_prime_mr(cofactor):
+                    if primality_test(cofactor):
                         add_log(db, job_id, "INFO", f"Cofactor {cofactor} is prime", "trial_division")
-                        record_factor(db, job_id, cofactor, "trial_division", elapsed_ms)
+                        record_factor(db, job_id, cofactor, "trial_division", elapsed_ms,
+                                    primality_test, generate_certs)
                         found_factors.append(cofactor)
 
         # Stage 2: Pollard-rho (cheap probabilistic method)
@@ -185,19 +218,101 @@ def run_factorization_task(job_id: str):
             if factor:
                 elapsed_ms = int((time.time() - start_time) * 1000)
                 add_log(db, job_id, "INFO", f"Found factor via Pollard-rho: {factor}", "pollard_rho")
-                record_factor(db, job_id, factor, "pollard_rho", elapsed_ms)
+                record_factor(db, job_id, factor, "pollard_rho", elapsed_ms,
+                            primality_test, generate_certs)
                 found_factors.append(factor)
 
                 cofactor = n // factor
                 if cofactor > 1 and cofactor != factor:
-                    if is_prime_mr(cofactor):
+                    if primality_test(cofactor):
                         add_log(db, job_id, "INFO", f"Cofactor {cofactor} is prime", "pollard_rho")
-                        record_factor(db, job_id, cofactor, "pollard_rho", elapsed_ms)
+                        record_factor(db, job_id, cofactor, "pollard_rho", elapsed_ms,
+                                    primality_test, generate_certs)
                         found_factors.append(cofactor)
 
-        # Stage 3: ECM (for medium-sized factors)
+        # Stage 3: Shor's Algorithm (Classical Emulation)
+        if not found_factors and policy.get("use_shor_classical", True):
+            add_log(db, job_id, "INFO", "Stage 3: Shor's algorithm (classical emulation)", "shor_classical")
+            job.progress_percent = 25
+            db.commit()
+
+            # Educational note about this stage
+            add_log(db, job_id, "INFO",
+                   "Note: This uses classical order-finding (not quantum). "
+                   "Works efficiently when orders are smooth, similar to Pollard's p-1.",
+                   "shor_classical")
+
+            # Try with increasing smoothness bounds
+            B_values = [10000, 50000, 200000, 1000000]
+
+            for i, B in enumerate(B_values):
+                # Check for cancellation
+                db.refresh(job)
+                if job.status == JobStatus.CANCELLED:
+                    add_log(db, job_id, "INFO", "Job cancelled by user", "shor_classical")
+                    return {"status": "cancelled"}
+
+                add_log(db, job_id, "INFO",
+                       f"Shor classical: trying smoothness bound B={B:,}",
+                       "shor_classical")
+
+                factor, all_diagnostics = shor_classical_multi_attempt(
+                    n,
+                    B_values=[B],
+                    max_attempts_per_B=3  # Try 3 random bases per B value
+                )
+
+                if factor:
+                    elapsed_ms = int((time.time() - start_time) * 1000)
+
+                    # Log the successful attempt's details
+                    successful_diag = [d for d in all_diagnostics if 'method' in d and 'failed' not in d.get('method', '')]
+                    if successful_diag:
+                        diag = successful_diag[-1]
+                        add_log(db, job_id, "INFO",
+                               f"Shor classical success: method={diag.get('method')}, a={diag.get('a')}, "
+                               f"order={diag.get('order_found', 'N/A')}, B={B:,}",
+                               "shor_classical",
+                               payload=diag)
+
+                        # Add educational explanation
+                        if diag.get('order_found'):
+                            r = diag['order_found']
+                            explanation = (
+                                f"Found order r={r} of a={diag.get('a')} mod n. "
+                                f"Order is {'even' if r % 2 == 0 else 'odd'}. "
+                            )
+                            if diag.get('shor_condition_satisfied'):
+                                explanation += f"Shor's conditions satisfied: r even and a^(r/2) ≢ ±1 (mod n). "
+                                explanation += f"Used gcd(a^(r/2) ± 1, n) to extract factor."
+                            add_log(db, job_id, "INFO", explanation, "shor_classical")
+
+                    add_log(db, job_id, "INFO", f"Found factor via Shor classical: {factor}", "shor_classical")
+                    record_factor(db, job_id, factor, "shor_classical", elapsed_ms,
+                                primality_test, generate_certs)
+                    found_factors.append(factor)
+
+                    cofactor = n // factor
+                    if cofactor > 1 and cofactor != factor:
+                        if primality_test(cofactor):
+                            add_log(db, job_id, "INFO", f"Cofactor {cofactor} is prime", "shor_classical")
+                            record_factor(db, job_id, cofactor, "shor_classical", elapsed_ms,
+                                        primality_test, generate_certs)
+                            found_factors.append(cofactor)
+                    break
+
+                # Update progress
+                job.progress_percent = 25 + int((i + 1) / len(B_values) * 5)
+                db.commit()
+
+            if not found_factors:
+                add_log(db, job_id, "INFO",
+                       "Shor classical: no factor found (order likely not smooth within B bounds)",
+                       "shor_classical")
+
+        # Stage 4: ECM (for medium-sized factors)
         if not found_factors and use_ecm:
-            add_log(db, job_id, "INFO", "Stage 3: Elliptic Curve Method (ECM)", "ecm")
+            add_log(db, job_id, "INFO", "Stage 4: Elliptic Curve Method (ECM)", "ecm")
             job.progress_percent = 30
             db.commit()
 
@@ -218,94 +333,317 @@ def run_factorization_task(job_id: str):
             if factor:
                 elapsed_ms = int((time.time() - start_time) * 1000)
                 add_log(db, job_id, "INFO", f"Found factor via ECM: {factor}", "ecm")
-                record_factor(db, job_id, factor, "ecm", elapsed_ms)
+                record_factor(db, job_id, factor, "ecm", elapsed_ms,
+                            primality_test, generate_certs)
                 found_factors.append(factor)
 
                 cofactor = n // factor
                 if cofactor > 1 and cofactor != factor:
-                    if is_prime_mr(cofactor):
+                    if primality_test(cofactor):
                         add_log(db, job_id, "INFO", f"Cofactor {cofactor} is prime", "ecm")
-                        record_factor(db, job_id, cofactor, "ecm", elapsed_ms)
+                        record_factor(db, job_id, cofactor, "ecm", elapsed_ms,
+                                    primality_test, generate_certs)
                         found_factors.append(cofactor)
 
-        # Stage 4: Equation-guided prime search (if enabled and bounds set)
-        if not found_factors and solver and job.lower_bound and job.upper_bound:
-            add_log(db, job_id, "INFO", "Stage 4: Equation-guided prime search", "equation_search")
-            job.progress_percent = 70
-            db.commit()
+        # Stage 5: Advanced ECM (for 30+ digit factors)
+        if not found_factors and use_ecm:
+            digit_count = len(str(n))
+            if digit_count >= 30:  # ECM is most effective for larger numbers
+                add_log(db, job_id, "INFO", "Stage 5: Advanced ECM (GMP-ECM)", "ecm_advanced")
+                job.progress_percent = 60
+                db.commit()
 
-            lower = int(job.lower_bound)
-            upper = int(job.upper_bound)
+                try:
+                    from app.algos.ecm_advanced import ecm_factor_staged_advanced, suggest_ecm_params
 
-            add_log(db, job_id, "INFO", f"Searching primes in range [{lower:.2e}, {upper:.2e}]", "equation_search")
+                    # Get recommended parameters
+                    params = suggest_ecm_params(digit_count)
+                    add_log(db, job_id, "INFO",
+                           f"ECM parameters: B1={params['B1']}, curves={params['curves']}, "
+                           f"expected time: {params['expected_time']}",
+                           "ecm_advanced",
+                           payload=params)
 
-            # Use primesieve to iterate primes efficiently
-            it = Iterator()
-            it.skipto(lower)
-
-            prime = it.next_prime()
-            count = 0
-            check_interval = 10000
-
-            while prime <= upper and prime <= int(gmpy2.isqrt(n)):
-                # Check for cancellation
-                db.refresh(job)
-                if job.status == JobStatus.CANCELLED:
-                    add_log(db, job_id, "INFO", "Job cancelled by user", "equation_search")
-                    return {"status": "cancelled"}
-
-                # Test if prime divides n
-                if n % prime == 0:
-                    elapsed_ms = int((time.time() - start_time) * 1000)
-                    add_log(db, job_id, "INFO", f"Found factor via Trurl equation search: {prime}", "equation_search")
-
-                    # Get complementary factor
-                    cofactor = n // prime
-
-                    # Verify all Trurl constraints
-                    x_factor = min(prime, cofactor)
-                    y_factor = max(prime, cofactor)
-                    constraints = solver.verify_all_constraints(x_factor, y_factor)
-
-                    # Log constraint verification
-                    all_satisfied = all(v for v in constraints.values() if v is not None)
-                    if all_satisfied:
+                    def ecm_advanced_callback(stage_num, total_stages, B1, curves):
+                        progress = 60 + int((stage_num / total_stages) * 15)
+                        job.progress_percent = progress
                         add_log(db, job_id, "INFO",
-                               "All Trurl constraints verified: pnp=x*y, equation match, x<y, inverse relationship",
-                               "equation_search",
-                               payload={"constraints": constraints})
+                               f"ECM advanced stage {stage_num+1}/{total_stages} (B1={B1:,}, curves={curves:,})",
+                               "ecm_advanced")
+                        db.commit()
+
+                    factor = ecm_factor_staged_advanced(n, digit_count, callback=ecm_advanced_callback)
+
+                    if factor:
+                        elapsed_ms = int((time.time() - start_time) * 1000)
+                        add_log(db, job_id, "INFO", f"Found factor via Advanced ECM: {factor}", "ecm_advanced")
+                        record_factor(db, job_id, factor, "ecm_advanced", elapsed_ms,
+                                    primality_test, generate_certs)
+                        found_factors.append(factor)
+
+                        cofactor = n // factor
+                        if cofactor > 1 and cofactor != factor:
+                            if primality_test(cofactor):
+                                add_log(db, job_id, "INFO", f"Cofactor {cofactor} is prime", "ecm_advanced")
+                                record_factor(db, job_id, cofactor, "ecm_advanced", elapsed_ms,
+                                            primality_test, generate_certs)
+                                found_factors.append(cofactor)
+                except ImportError:
+                    add_log(db, job_id, "WARNING",
+                           "Advanced ECM (passagemath-libecm) not available. Skipping.",
+                           "ecm_advanced")
+
+        # Stage 6: CADO-NFS (for 200+ digit semiprimes - production GNFS)
+        if not found_factors:
+            digit_count = len(str(n))
+            if digit_count >= 200:  # CADO-NFS is the right tool for RSA-scale numbers
+                add_log(db, job_id, "INFO", "Stage 6: CADO-NFS (General Number Field Sieve)", "cado_nfs")
+                job.progress_percent = 75
+                db.commit()
+
+                try:
+                    from app.algos.cado_nfs import cado_nfs_factor, estimate_cado_runtime, HAS_CADO
+
+                    if HAS_CADO:
+                        # Get runtime estimate
+                        estimate = estimate_cado_runtime(digit_count)
+                        add_log(db, job_id, "INFO",
+                               f"CADO-NFS est: {estimate['estimated_time']}, "
+                               f"recommended CPU cores: {estimate['cpu_cores']}, "
+                               f"memory: {estimate['memory_gb']} GB",
+                               "cado_nfs",
+                               payload=estimate)
+
+                        # Get expected factor size from Trurl bounds (if available)
+                        expected_factor_digits = None
+                        if solver and job.lower_bound:
+                            import math
+                            try:
+                                lower = int(float(job.lower_bound))
+                                expected_factor_digits = int(math.log10(lower))
+                                add_log(db, job_id, "INFO",
+                                       f"Using Trurl hint for polynomial selection: expected factor ~10^{expected_factor_digits}",
+                                       "cado_nfs")
+                            except:
+                                pass
+
+                        # Setup CADO callback for progress updates
+                        def cado_callback(log_line):
+                            # Stream CADO-NFS logs to database
+                            add_log(db, job_id, "INFO", log_line, "cado_nfs")
+
+                            # Check for cancellation periodically
+                            db.refresh(job)
+                            if job.status == JobStatus.CANCELLED:
+                                raise Exception("Job cancelled by user")
+
+                        # Run CADO-NFS (this may take weeks/months for RSA-260)
+                        add_log(db, job_id, "INFO",
+                               "CADO-NFS starting... This may run for weeks/months. "
+                               "You can safely cancel and resume later (CADO checkpoints automatically).",
+                               "cado_nfs")
+
+                        result = cado_nfs_factor(
+                            n,
+                            threads=4,  # TODO: Make configurable
+                            expected_factor_digits=expected_factor_digits,
+                            callback=cado_callback,
+                            timeout=None  # No timeout - let it run
+                        )
+
+                        if result:
+                            p, q = result
+                            elapsed_ms = int((time.time() - start_time) * 1000)
+                            add_log(db, job_id, "INFO", f"CADO-NFS found factors: {p} × {q}", "cado_nfs")
+
+                            # Record both factors
+                            record_factor(db, job_id, p, "cado_nfs", elapsed_ms)
+                            record_factor(db, job_id, q, "cado_nfs", elapsed_ms)
+                            found_factors.extend([p, q])
                     else:
                         add_log(db, job_id, "WARNING",
-                               f"Some constraints not satisfied: {constraints}",
-                               "equation_search",
-                               payload={"constraints": constraints})
+                               "CADO-NFS not available. For 200+ digit semiprimes, "
+                               "CADO-NFS (General Number Field Sieve) is the recommended method. "
+                               "Falling back to slower alternatives...",
+                               "cado_nfs")
 
-                    # Compute y using Trurl's equation for verification
-                    computed_y = solver.compute_y_from_x(x_factor)
-                    add_log(db, job_id, "INFO",
-                           f"Trurl equation y = (((pnp^2/x) + x^2) / pnp) yields {computed_y} (actual y = {y_factor})",
-                           "equation_search")
+                except Exception as e:
+                    if "cancelled" in str(e).lower():
+                        add_log(db, job_id, "INFO", "CADO-NFS cancelled by user", "cado_nfs")
+                        return {"status": "cancelled"}
+                    else:
+                        add_log(db, job_id, "WARNING",
+                               f"CADO-NFS error: {e}. Continuing with other methods...",
+                               "cado_nfs")
 
-                    # Record factors
-                    record_factor(db, job_id, prime, "equation_search", elapsed_ms)
-                    found_factors.append(prime)
+        # Stage 7: Equation-guided prime search (if enabled and bounds set)
+        if not found_factors and solver and job.lower_bound and job.upper_bound:
+            add_log(db, job_id, "INFO", "Stage 6: Equation-guided prime search (Trurl method)", "equation_search")
+            job.progress_percent = 75
+            db.commit()
 
-                    if cofactor > 1:
-                        if is_prime_mr(cofactor):
-                            add_log(db, job_id, "INFO", f"Cofactor {cofactor} is prime", "equation_search")
-                            record_factor(db, job_id, cofactor, "equation_search", elapsed_ms)
-                            found_factors.append(cofactor)
-                    break
+            # Convert from scientific notation if needed (e.g., "1e90" -> 10^90)
+            lower = int(float(job.lower_bound))
+            upper = int(float(job.upper_bound))
 
-                count += 1
-                if count % check_interval == 0:
-                    # Update progress
-                    progress = solver.estimate_progress(prime, lower, upper)
-                    job.progress_percent = int(70 + (progress * 0.25))
-                    job.current_candidate = str(prime)
-                    db.commit()
+            # Determine which prime iterator to use
+            MAX_PRIMESIEVE = 2**64 - 1
+            use_arbitrary_precision = lower > MAX_PRIMESIEVE or upper > MAX_PRIMESIEVE
+
+            if use_arbitrary_precision:
+                add_log(db, job_id, "INFO",
+                       f"Search range [{lower:.2e}, {upper:.2e}] exceeds primesieve limits. "
+                       f"Switching to arbitrary-precision prime iteration (gmpy2).",
+                       "equation_search")
+                add_log(db, job_id, "WARNING",
+                       f"Note: Arbitrary-precision iteration is ~1000x slower than primesieve. "
+                       f"For RSA-class numbers (200+ digits), this will take extremely long. "
+                       f"Consider using CADO-NFS for numbers this large.",
+                       "equation_search")
+
+                # Use gmpy2.next_prime for arbitrary precision
+                prime = gmpy2.next_prime(gmpy2.mpz(lower))
+                count = 0
+                check_interval = 1000  # Check less frequently for large numbers
+
+                while prime <= upper and prime <= gmpy2.isqrt(gmpy2.mpz(n)):
+                    # Check for cancellation
+                    db.refresh(job)
+                    if job.status == JobStatus.CANCELLED:
+                        add_log(db, job_id, "INFO", "Job cancelled by user", "equation_search")
+                        return {"status": "cancelled"}
+
+                    # Test if prime divides n
+                    if n % int(prime) == 0:
+                        elapsed_ms = int((time.time() - start_time) * 1000)
+                        add_log(db, job_id, "INFO", f"Found factor via Trurl equation search: {prime}", "equation_search")
+
+                        prime_int = int(prime)
+                        cofactor = n // prime_int
+
+                        # Verify all Trurl constraints
+                        x_factor = min(prime_int, cofactor)
+                        y_factor = max(prime_int, cofactor)
+                        constraints = solver.verify_all_constraints(x_factor, y_factor)
+
+                        # Log constraint verification
+                        all_satisfied = all(v for v in constraints.values() if v is not None)
+                        if all_satisfied:
+                            add_log(db, job_id, "INFO",
+                                   "All Trurl constraints verified: pnp=x*y, equation match, x<y, inverse relationship",
+                                   "equation_search",
+                                   payload={"constraints": constraints})
+                        else:
+                            add_log(db, job_id, "WARNING",
+                                   f"Some constraints not satisfied: {constraints}",
+                                   "equation_search",
+                                   payload={"constraints": constraints})
+
+                        # Compute y using Trurl's equation for verification
+                        computed_y = solver.compute_y_from_x(x_factor)
+                        add_log(db, job_id, "INFO",
+                               f"Trurl equation y = (((pnp^2/x) + x^2) / pnp) yields {computed_y} (actual y = {y_factor})",
+                               "equation_search")
+
+                        # Record factors
+                        record_factor(db, job_id, prime_int, "equation_search", elapsed_ms,
+                                    primality_test, generate_certs)
+                        found_factors.append(prime_int)
+
+                        if cofactor > 1:
+                            if primality_test(cofactor):
+                                add_log(db, job_id, "INFO", f"Cofactor {cofactor} is prime", "equation_search")
+                                record_factor(db, job_id, cofactor, "equation_search", elapsed_ms,
+                                            primality_test, generate_certs)
+                                found_factors.append(cofactor)
+                        break
+
+                    count += 1
+                    if count % check_interval == 0:
+                        # Update progress
+                        progress = solver.estimate_progress(int(prime), lower, upper)
+                        job.progress_percent = int(75 + (progress * 0.20))
+                        job.current_candidate = str(prime)
+                        add_log(db, job_id, "INFO",
+                               f"Checked {count:,} primes. Current: {prime:.6e}",
+                               "equation_search")
+                        db.commit()
+
+                    prime = gmpy2.next_prime(prime)
+
+            else:
+                # Use fast primesieve for numbers < 2^64
+                add_log(db, job_id, "INFO", f"Using primesieve for fast iteration in range [{lower:.2e}, {upper:.2e}]", "equation_search")
+
+                # Use primesieve to iterate primes efficiently
+                it = Iterator()
+                it.skipto(lower)
 
                 prime = it.next_prime()
+                count = 0
+                check_interval = 10000
+
+                while prime <= upper and prime <= int(gmpy2.isqrt(n)):
+                    # Check for cancellation
+                    db.refresh(job)
+                    if job.status == JobStatus.CANCELLED:
+                        add_log(db, job_id, "INFO", "Job cancelled by user", "equation_search")
+                        return {"status": "cancelled"}
+
+                    # Test if prime divides n
+                    if n % prime == 0:
+                        elapsed_ms = int((time.time() - start_time) * 1000)
+                        add_log(db, job_id, "INFO", f"Found factor via Trurl equation search: {prime}", "equation_search")
+
+                        # Get complementary factor
+                        cofactor = n // prime
+
+                        # Verify all Trurl constraints
+                        x_factor = min(prime, cofactor)
+                        y_factor = max(prime, cofactor)
+                        constraints = solver.verify_all_constraints(x_factor, y_factor)
+
+                        # Log constraint verification
+                        all_satisfied = all(v for v in constraints.values() if v is not None)
+                        if all_satisfied:
+                            add_log(db, job_id, "INFO",
+                                   "All Trurl constraints verified: pnp=x*y, equation match, x<y, inverse relationship",
+                                   "equation_search",
+                                   payload={"constraints": constraints})
+                        else:
+                            add_log(db, job_id, "WARNING",
+                                   f"Some constraints not satisfied: {constraints}",
+                                   "equation_search",
+                                   payload={"constraints": constraints})
+
+                        # Compute y using Trurl's equation for verification
+                        computed_y = solver.compute_y_from_x(x_factor)
+                        add_log(db, job_id, "INFO",
+                               f"Trurl equation y = (((pnp^2/x) + x^2) / pnp) yields {computed_y} (actual y = {y_factor})",
+                               "equation_search")
+
+                        # Record factors
+                        record_factor(db, job_id, prime, "equation_search", elapsed_ms,
+                                    primality_test, generate_certs)
+                        found_factors.append(prime)
+
+                        if cofactor > 1:
+                            if primality_test(cofactor):
+                                add_log(db, job_id, "INFO", f"Cofactor {cofactor} is prime", "equation_search")
+                                record_factor(db, job_id, cofactor, "equation_search", elapsed_ms,
+                                            primality_test, generate_certs)
+                                found_factors.append(cofactor)
+                        break
+
+                    count += 1
+                    if count % check_interval == 0:
+                        # Update progress
+                        progress = solver.estimate_progress(prime, lower, upper)
+                        job.progress_percent = int(70 + (progress * 0.25))
+                        job.current_candidate = str(prime)
+                        db.commit()
+
+                    prime = it.next_prime()
 
         # Finalize
         if found_factors:
@@ -351,15 +689,45 @@ def add_log(db, job_id: str, level: str, message: str, stage: str, payload: dict
     db.commit()
 
 
-def record_factor(db, job_id: str, factor: int, algorithm: str, elapsed_ms: int):
-    """Helper to record a found factor"""
+def record_factor(db, job_id: str, factor: int, algorithm: str, elapsed_ms: int,
+                 primality_test=None, generate_cert=False):
+    """
+    Helper to record a found factor.
+
+    Args:
+        db: Database session
+        job_id: Job ID
+        factor: The factor found
+        algorithm: Algorithm that found the factor
+        elapsed_ms: Time taken
+        primality_test: Function to test primality (default: is_prime_fast)
+        generate_cert: Whether to generate a primality certificate
+    """
     from app.models import JobResult
-    from app.algos import is_prime_mr
+    from app.algos import is_prime_fast, generate_certificate_simple
+
+    if primality_test is None:
+        primality_test = is_prime_fast
+
+    is_prime = primality_test(factor)
+
+    # Generate certificate if requested and factor is prime
+    certificate = None
+    if generate_cert and is_prime:
+        try:
+            cert = generate_certificate_simple(factor)
+            if cert:
+                certificate = cert.to_json()
+        except Exception as e:
+            add_log(db, job_id, "WARNING",
+                   f"Failed to generate certificate for factor {factor}: {e}",
+                   algorithm)
 
     result = JobResult(
         job_id=job_id,
         factor=str(factor),
-        is_prime=is_prime_mr(factor),
+        is_prime=is_prime,
+        certificate=certificate,
         found_by_algorithm=algorithm,
         elapsed_ms=elapsed_ms
     )

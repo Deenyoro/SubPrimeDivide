@@ -250,7 +250,7 @@ export default function Home() {
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm">
-                          <Link href={`/job/${job.id}`}>
+                          <a href={`/job/${job.id}`}>
                             <Button variant="primary" size="sm" className="hover-lift">
                               <span className="flex items-center gap-1">
                                 View Details
@@ -259,7 +259,7 @@ export default function Home() {
                                 </svg>
                               </span>
                             </Button>
-                          </Link>
+                          </a>
                         </td>
                       </tr>
                     ))}

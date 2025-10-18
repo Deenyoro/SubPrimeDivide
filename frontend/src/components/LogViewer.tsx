@@ -68,6 +68,9 @@ export default function LogViewer({ logs, autoScroll = true, maxHeight = '600px'
   }
 
   const filteredLogs = logs.filter(log => {
+    // Filter out logs with no message
+    if (!log.message || log.message.trim() === '') return false
+
     const matchesSearch = searchTerm === '' ||
       log.message.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (log.stage && log.stage.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -163,10 +166,10 @@ export default function LogViewer({ logs, autoScroll = true, maxHeight = '600px'
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-baseline gap-2">
                       <span className="text-gray-500 text-xs whitespace-nowrap">
-                        {new Date(log.created_at).toLocaleTimeString()}
+                        {log.created_at ? new Date(log.created_at).toLocaleTimeString() : 'N/A'}
                       </span>
                       <span className={`font-semibold text-xs ${getLevelColor(log.level)}`}>
-                        {log.level}
+                        {log.level || 'INFO'}
                       </span>
                       {log.stage && (
                         <span className="text-blue-400 text-xs bg-blue-900/30 px-2 py-0.5 rounded">
@@ -174,7 +177,7 @@ export default function LogViewer({ logs, autoScroll = true, maxHeight = '600px'
                         </span>
                       )}
                     </div>
-                    <div className="text-gray-200 mt-1 break-words">{log.message}</div>
+                    <div className="text-gray-200 mt-1 break-words">{log.message || '(no message)'}</div>
                     {log.payload && (
                       <details className="mt-2">
                         <summary className="text-gray-400 text-xs cursor-pointer hover:text-gray-300">

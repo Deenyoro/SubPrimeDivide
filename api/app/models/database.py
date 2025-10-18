@@ -63,6 +63,20 @@ class Job(Base):
     logs = relationship("JobLog", back_populates="job", cascade="all, delete-orphan")
     results = relationship("JobResult", back_populates="job", cascade="all, delete-orphan")
 
+    @property
+    def completed_at(self):
+        """Alias for finished_at for backwards compatibility"""
+        return self.finished_at
+
+    @property
+    def elapsed_seconds(self):
+        """Calculate elapsed time in seconds"""
+        if self.started_at:
+            end_time = self.finished_at or datetime.utcnow()
+            delta = end_time - self.started_at
+            return int(delta.total_seconds())
+        return None
+
 
 class JobLog(Base):
     """Job execution logs"""
@@ -77,6 +91,11 @@ class JobLog(Base):
     payload = Column(JSON, nullable=True)  # Additional structured data
 
     job = relationship("Job", back_populates="logs")
+
+    @property
+    def created_at(self):
+        """Alias for timestamp for backwards compatibility"""
+        return self.timestamp
 
 
 class JobResult(Base):
@@ -93,6 +112,21 @@ class JobResult(Base):
     elapsed_ms = Column(Integer)  # Time to find this factor
 
     job = relationship("Job", back_populates="results")
+
+    @property
+    def created_at(self):
+        """Alias for found_at for backwards compatibility"""
+        return self.found_at
+
+    @property
+    def algorithm(self):
+        """Alias for found_by_algorithm for backwards compatibility"""
+        return self.found_by_algorithm
+
+    @property
+    def elapsed_seconds(self):
+        """Convert elapsed_ms to seconds"""
+        return self.elapsed_ms / 1000.0 if self.elapsed_ms else 0
 
 
 class Upload(Base):
