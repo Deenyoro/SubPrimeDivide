@@ -10,7 +10,7 @@
   </p>
 
   <p align="center">
-    Supporting multiple algorithms including Trial Division, Pollard-rho, ECM, and the custom Trurl equation-based method
+    BPSW primality testing • Trial Division • Pollard-rho • Shor's classical emulation • ECM • Trurl equation-guided search • Primality certificates
   </p>
 </div>
 
@@ -19,7 +19,11 @@
 ## Features
 
 - **Equation-Guided Search**: Implements the Trurl semiprime equation method to narrow factor search ranges
-- **Multiple Algorithms**: Trial division, Pollard-rho (Brent variant), Elliptic Curve Method (ECM)
+- **Multiple Algorithms**: Trial division, Pollard-rho (Brent variant), Elliptic Curve Method (ECM), Shor's classical emulation
+- **BPSW Primality Testing**: Baillie-PSW (Miller-Rabin + Lucas) with no known counterexamples - effectively deterministic
+- **Primality Certificates**: ECPP-style proofs using Pocklington's theorem, downloadable as JSON
+- **Batch-GCD**: Bernstein's O(n log²n) algorithm for finding shared factors in bulk operations
+- **Arbitrary-Precision Iteration**: Handles 200+ digit numbers via gmpy2.next_prime() beyond primesieve's 2^64 limit
 - **Web Interface**: Modern React/Next.js UI with real-time progress tracking
 - **Async Processing**: Celery workers handle long-running jobs with pause/resume/cancel support
 - **WebSocket Streaming**: Live logs and progress updates
@@ -195,7 +199,9 @@ curl -X POST http://localhost:8080/api/jobs \
       "trial_division_limit": 10000000,
       "use_pollard_rho": true,
       "pollard_rho_iterations": 1000000,
-      "use_ecm": true
+      "use_ecm": true,
+      "use_bpsw": true,
+      "generate_certificates": true
     }
   }'
 ```
@@ -250,29 +256,47 @@ upper = 1.0 × 10^130
 
 ## Algorithms
 
-### 1. Trial Division
+### 1. BPSW Primality Test
+- Combines Miller-Rabin (base 2) + strong Lucas test
+- No known counterexamples - deterministic for n ≤ 2^64
+- Used for all primality checks throughout the pipeline
+
+### 2. Trial Division
 - Fastest for small factors (< 10^7)
 - Uses wheel factorization and primesieve
 - Configurable limit
 
-### 2. Pollard-Rho (Brent Variant)
+### 3. Pollard-Rho (Brent Variant)
 - Probabilistic method
 - Good for medium factors (up to ~30 digits)
 - Very fast when it works
 
-### 3. Elliptic Curve Method (ECM)
+### 4. Shor's Classical Emulation
+- Classical order-finding for smooth orders (research/educational)
+- Only succeeds when orders are B-smooth
+- Demonstrates Shor's classical post-processing steps
+
+### 5. Elliptic Curve Method (ECM)
 - Best for finding factors up to 40-50 digits
 - Uses GMP-ECM (external C library)
 - Configurable stages: (B1, curves)
   - Quick: (10000, 25)
   - Standard: (50000, 100)
   - Deep: (250000, 200)
+- Enhanced mode: checkpointing, resume, configurable timeouts
 
-### 4. Equation-Guided Prime Search
+### 6. Equation-Guided Prime Search
 - Custom Trurl method
 - Narrows search space using mathematical constraints
-- Iterates only primes in computed range
+- For n ≤ 2^64: primesieve iteration
+- For n > 2^64: gmpy2.next_prime() arbitrary precision
 - Efficient for semiprimes where factors are in known ranges
+
+### 7. Batch-GCD
+- Bernstein's product tree algorithm
+- Finds shared factors across multiple numbers simultaneously
+- O(n log²n) instead of O(n²) pairwise comparisons
+- Enabled for bulk CSV uploads
 
 ## Development
 
@@ -480,14 +504,23 @@ Edit job creation payload or UI form:
     "trial_division_limit": 10000000,
     "use_pollard_rho": true,
     "pollard_rho_iterations": 1000000,
-    "use_ecm": true
+    "use_shor_classical": true,
+    "use_ecm": true,
+    "use_ecm_enhanced": true,
+    "use_bpsw": true,
+    "use_batch_gcd": false,
+    "generate_certificates": false,
+    "max_time_per_stage": null
   },
   "ecm_params": {
     "stages": [
       [10000, 25],
       [50000, 100],
       [250000, 200]
-    ]
+    ],
+    "use_checkpointing": true,
+    "checkpoint_interval": 100,
+    "timeout_seconds": null
   }
 }
 ```
@@ -687,11 +720,16 @@ Full API docs available at http://localhost:8080/docs (Swagger UI).
 
 ## References
 
+- [Baillie-PSW Primality Test](https://en.wikipedia.org/wiki/Baillie%E2%80%93PSW_primality_test)
 - [Miller-Rabin Primality Test](https://en.wikipedia.org/wiki/Miller%E2%80%93Rabin_primality_test)
+- [Lucas Primality Test](https://en.wikipedia.org/wiki/Lucas_primality_test)
 - [Pollard's Rho Algorithm](https://en.wikipedia.org/wiki/Pollard%27s_rho_algorithm)
+- [Shor's Algorithm](https://en.wikipedia.org/wiki/Shor%27s_algorithm)
 - [Lenstra Elliptic Curve Factorization](https://en.wikipedia.org/wiki/Lenstra_elliptic-curve_factorization)
 - [General Number Field Sieve](https://en.wikipedia.org/wiki/General_number_field_sieve)
 - [GMP-ECM](https://www.loria.fr/~zimmerma/software/ecm/)
+- [Bernstein's Batch GCD](https://facthacks.cr.yp.to/batchgcd.html)
+- [Pocklington's Theorem](https://en.wikipedia.org/wiki/Pocklington_primality_test)
 - [RSA Factoring Challenge](https://en.wikipedia.org/wiki/RSA_Factoring_Challenge)
 
 ---
